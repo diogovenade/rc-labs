@@ -10,6 +10,7 @@
 #include <sys/stat.h>
 #include <termios.h>
 #include <unistd.h>
+#include <signal.h>
 
 // Baudrate settings are defined in <asm/termbits.h>, which is
 // included by <termios.h>
@@ -22,6 +23,25 @@
 #define BUF_SIZE 256
 
 volatile int STOP = FALSE;
+
+int alarmEnabled = FALSE;
+int alarmCount = 0;
+
+int fd;
+unsigned char buf[BUF_SIZE] = {0};
+
+// Alarm function handler
+void alarmHandler(int signal)
+{
+    alarmEnabled = FALSE;
+    alarmCount++;
+
+    printf("Alarm #%d - Retransmitting SET frame\n", alarmCount);
+
+    // Retransmit the SET frame
+    int bytes = write(fd, buf, 5);
+    printf("%d bytes written (retransmit)\n", bytes);
+}
 
 int main(int argc, char *argv[])
 {
@@ -40,7 +60,7 @@ int main(int argc, char *argv[])
 
     // Open serial port device for reading and writing, and not as controlling tty
     // because we don't want to get killed if linenoise sends CTRL-C.
-    int fd = open(serialPortName, O_RDWR | O_NOCTTY);
+    fd = open(serialPortName, O_RDWR | O_NOCTTY);
 
     if (fd < 0)
     {
@@ -67,8 +87,8 @@ int main(int argc, char *argv[])
 
     // Set input mode (non-canonical, no echo,...)
     newtio.c_lflag = 0;
-    newtio.c_cc[VTIME] = 0; // Inter-character timer unused
-    newtio.c_cc[VMIN] = 5;  // Blocking read until 5 chars received
+    newtio.c_cc[VTIME] = 30; // Inter-character timer unused
+    newtio.c_cc[VMIN] = 0;  // Blocking read until 5 chars received
 
     // VTIME e VMIN should be changed in order to protect with a
     // timeout the reception of the following character(s)
@@ -90,8 +110,6 @@ int main(int argc, char *argv[])
     printf("New termios structure set\n");
 
     // Create string to send
-    unsigned char buf[BUF_SIZE] = {0};
-
     buf[0] = 0x7E;
     buf[1] = 0x03;
     buf[2] = 0x03;
@@ -109,18 +127,29 @@ int main(int argc, char *argv[])
     // Wait until all bytes have been written to the serial port
     sleep(1);
 
+    (void)signal(SIGALRM, alarmHandler);
+
     unsigned char ua[BUF_SIZE] = {0};
     int bytes_ua = read(fd, ua, 5);
 
-    if (ua[2] == 0x07 && ((ua[1] ^ ua[2]) == ua[3])) {
-        printf("UA FRAME DETECTED\n");
-        for (int i = 0; i < 5; i++) {
-            printf("var = 0x%02X\n", (unsigned int)(ua[i]));
-        }
-        printf("Read %d bytes\n", bytes_ua);
-    } else {
-        printf("Couldn't detect UA frame\n");
+    while (alarmCount < 4) {
+        if (ua[2] == 0x07 && ((ua[1] ^ ua[2]) == ua[3])) {
+            alarm(0);
+            printf("UA FRAME DETECTED\n");
+            for (int i = 0; i < 5; i++) {
+                printf("var = 0x%02X\n", (unsigned int)(ua[i]));
+            }
+            printf("Read %d bytes\n", bytes_ua);
+            break;
+        } else if (alarmEnabled == FALSE) {
+            //printf("Couldn't detect UA frame\n");
+            alarm(3);
+            alarmEnabled = TRUE;
     }
+
+    if (!(ua[2] == 0x07 && ((ua[1] ^ ua[2]) == ua[3]))) {
+        printf("Could not detect UA frame, ending program\n");
+    }    
 
     // Restore the old port settings
     if (tcsetattr(fd, TCSANOW, &oldtio) == -1)
@@ -132,4 +161,5 @@ int main(int argc, char *argv[])
     close(fd);
 
     return 0;
+    }
 }
