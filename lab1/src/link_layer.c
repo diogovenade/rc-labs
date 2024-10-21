@@ -72,7 +72,7 @@ int llopen(LinkLayer connectionParameters)
             return -1;
         }
 
-        return 0;
+        return 1;
     }
 
     else if (connectionParameters.role == LlRx) {
@@ -127,14 +127,12 @@ int llopen(LinkLayer connectionParameters)
             return -1;
         }
 
-        return 0;
+        return 1;
     }
 
     else {
         return -1;
     }
-
-    // TODO
 
     return 1;
 }
