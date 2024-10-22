@@ -2,16 +2,32 @@
 
 #include "link_layer.h"
 #include "serial_port.h"
+#include "statemachine.h"
 #include <stdio.h>
 #include <unistd.h>
+#include <signal.h>
 
 // MISC
 #define _POSIX_SOURCE 1 // POSIX compliant source
 #define BUF_SIZE 5
 
+int alarmEnabled = FALSE;
+int alarmCount = 0;
+
+// Alarm function handler
+void alarmHandler(int signal)
+{
+    alarmEnabled = FALSE;
+    alarmCount++;
+
+    printf("Alarm #%d\n", alarmCount);
+}
+
 ////////////////////////////////////////////////
 // LLOPEN
 ////////////////////////////////////////////////
+
+
 int llopen(LinkLayer connectionParameters)
 {
     if (openSerialPort(connectionParameters.serialPort,
@@ -20,56 +36,38 @@ int llopen(LinkLayer connectionParameters)
         return -1;
     }
 
+    (void)signal(SIGALRM, alarmHandler);
+
     if (connectionParameters.role == LlTx) {
-        unsigned char buf[BUF_SIZE] = {0};
-        buf[0] = 0x7E;
-        buf[1] = 0x03;
-        buf[2] = 0x03;
-        buf[3] = buf[1] ^ buf[2];
-        buf[4] = 0x7E;
+        while (alarmCount < connectionParameters.nRetransmissions) {
+            unsigned char buf[BUF_SIZE] = {0};
+            buf[0] = 0x7E;
+            buf[1] = 0x03;
+            buf[2] = 0x03;
+            buf[3] = buf[1] ^ buf[2];
+            buf[4] = 0x7E;
 
-        int bytes = writeBytesSerialPort(buf, BUF_SIZE);
+            int bytes = writeBytesSerialPort(buf, BUF_SIZE);
 
-        if (bytes < 5) {
-            printf("Error: fewer than 5 bytes written\n");
-            return -1;
-        }
-
-        printf("\nSent SET frame:\n");
-        for (int i = 0; i < BUF_SIZE; i++) {
-                printf("var = 0x%02X\n", (unsigned int)(buf[i]));
-        }
-        printf("%d bytes written\n\n", bytes);
-
-        unsigned char ua[BUF_SIZE + 1] = {0}; // +1: Save space for the final '\0' char
-        volatile int STOP = FALSE;
-        int bytecounter = 0;
-
-        printf("Received UA frame:\n");
-
-        while (STOP == FALSE) {
-            int byte = readByteSerialPort(&ua[bytecounter]);
-            if (byte == -1) {
-                printf("Error: unable to read byte\n");
-                return -1;
-            } else if (byte == 0) {
-                printf("Error: no byte was received\n");
+            if (bytes < 5) {
+                printf("Error while writing\n");
                 return -1;
             }
 
-            printf("var = 0x%02X\n", (unsigned int)(ua[bytecounter]));
+            alarm(connectionParameters.timeout);
 
-            bytecounter++;
-            if (bytecounter == BUF_SIZE) {
-                ua[bytecounter] = '\0';
-                STOP = TRUE;
-                printf("Read %d bytes\n", bytecounter);
+            unsigned char ua[BUF_SIZE + 1] = {0}; // +1: Save space for the final '\0' char
+            int bytecounter = 0;
+            StateMachine* statemachine = new_statemachine(LlRx, REPLY, UA); // UA frame comes from receiver, so role is LlRx
+
+            while (statemachine->state != STOP) {
+                int read_byte = readByteSerialPort(&ua[bytecounter]);
+                if (read_byte > 0) {
+                    change_statemachine(statemachine, ua[bytecounter]);
+                    bytecounter++;
+                }
             }
-        }
 
-        if (!(ua[2] == 0x07 && ((ua[1] ^ ua[2]) == ua[3]))) {
-            printf("Received frame is incorrect\n");
-            return -1;
         }
 
         return 1;
