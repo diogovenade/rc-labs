@@ -127,7 +127,6 @@ int llopen(LinkLayer connectionParameters)
             return 1;
         }
 
-        // If we exit the loop without processing a valid SET frame, return an error
         return -1;
     }
 
