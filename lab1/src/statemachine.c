@@ -2,34 +2,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-StateMachine* new_statemachine(LinkLayerRole role, DataType datatype, Frame frame) {
+StateMachine* new_statemachine() {
     StateMachine* statemachine = (StateMachine*) malloc(sizeof(StateMachine));
     statemachine->state = START;
-    statemachine->role = role;
-    statemachine->datatype = datatype;
-    statemachine->frame = frame;
 
     return statemachine;
 }
 
-int get_a_byte(StateMachine* statemachine) {
-    if ((statemachine->role == LlTx && statemachine->datatype == COMMAND) || (statemachine->role == LlRx && statemachine->datatype == REPLY)) {
-        return 0x03; 
-    } else {
-        return 0x01;
-    }
-    return 0;
-}
-
-int get_c_byte(StateMachine* statemachine) {
-    if (statemachine->frame == SET)
-        return 0x03;
-    else if (statemachine->frame == UA)
-        return 0x07;
-    return 0;
-}
-
-void change_statemachine(StateMachine* statemachine, int byte) {
+void change_state(StateMachine* statemachine, int byte, unsigned char a_byte, unsigned char c_byte) {
     switch (statemachine -> state) {
         case START:
             if (byte == 0x7E) {
@@ -38,7 +18,7 @@ void change_statemachine(StateMachine* statemachine, int byte) {
             break;
         
         case FLAG_RCV:
-            if (byte == get_a_byte(statemachine)) {
+            if (byte == a_byte) {
                 statemachine->state = A_RCV;
             } else {
                 statemachine->state = START;
@@ -48,7 +28,7 @@ void change_statemachine(StateMachine* statemachine, int byte) {
         case A_RCV:
             if (byte == 0x7E) {
                 statemachine->state = FLAG_RCV;
-            } else if (byte == get_c_byte(statemachine)) {
+            } else if (byte == c_byte) {
                 statemachine->state = C_RCV;
             } else {
                 statemachine->state = START;
@@ -58,7 +38,7 @@ void change_statemachine(StateMachine* statemachine, int byte) {
         case C_RCV:
             if (byte == 0x7E) {
                 statemachine->state = FLAG_RCV;
-            } else if (byte == (get_a_byte(statemachine) ^ get_c_byte(statemachine))) {
+            } else if (byte == (a_byte ^ c_byte)) {
                 statemachine->state = BCC_OK;
             } else {
                 statemachine->state = START;
@@ -75,11 +55,5 @@ void change_statemachine(StateMachine* statemachine, int byte) {
 
         default:
             break;
-    }
-}
-
-void delete_statemachine(StateMachine* statemachine) {
-    if (statemachine != NULL) {
-        free(statemachine);
     }
 }

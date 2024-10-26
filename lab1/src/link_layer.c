@@ -6,10 +6,19 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <signal.h>
+#include <stdlib.h>
 
 // MISC
 #define _POSIX_SOURCE 1 // POSIX compliant source
 #define BUF_SIZE 5
+
+#define FLAG 0x7E
+#define A_COMTX 0X03 // command sent by transmitter
+#define A_REPRX 0x03 // reply sent by receiver
+#define A_COMRX 0x01 // command sent by receiver
+#define A_REPTX 0x01 // reply sent by transmitter
+#define C_SET 0X03
+#define C_UA 0x07
 
 int alarmEnabled = FALSE;
 int alarmCount = 0;
@@ -30,95 +39,93 @@ void alarmHandler(int signal)
 int llopen_tx(LinkLayer connectionParameters) {
     (void)signal(SIGALRM, alarmHandler);
 
+    StateMachine* statemachine = new_statemachine();
+
+    if (statemachine == NULL) {
+        printf("Error allocating state machine\n");
+        return -1;
+    }
+
     while (alarmCount < connectionParameters.nRetransmissions) {
-        unsigned char buf[BUF_SIZE] = {0};
-        buf[0] = 0x7E;
-        buf[1] = 0x03;
-        buf[2] = 0x03;
-        buf[3] = buf[1] ^ buf[2];
-        buf[4] = 0x7E;
+        unsigned char buf[BUF_SIZE] = {FLAG, A_COMTX, C_SET, A_COMTX ^ C_SET, FLAG};
 
-        int bytes = writeBytesSerialPort(buf, BUF_SIZE);
-
-        if (bytes < 5) {
+        if (writeBytesSerialPort(buf, BUF_SIZE) < 5) {
             printf("Error while writing\n");
+            free(statemachine);
             return -1;
         }
 
         printf("Sent SET frame\n");
 
-        alarm(connectionParameters.timeout);
-        alarmEnabled = TRUE;
+        if (alarmEnabled == FALSE) {
+            alarm(connectionParameters.timeout);
+            alarmEnabled = TRUE;
+        }
 
-        unsigned char ua[BUF_SIZE + 1] = {0}; // +1: Save space for the final '\0' char
-        int bytecounter = 0;
-        StateMachine* statemachine = new_statemachine(LlRx, REPLY, UA); // UA frame comes from receiver, so role is LlRx
+        int byteindex = 0;
 
         while (statemachine->state != STOP && alarmEnabled) {
-            int read_byte = readByteSerialPort(&ua[bytecounter]);
-            if (read_byte > 0) {
-                change_statemachine(statemachine, ua[bytecounter]);
+            if (readByteSerialPort(&buf[byteindex]) > 0) {
+                change_state(statemachine, buf[byteindex], A_REPRX, C_UA);
                 if (statemachine->state == START) {
-                    bytecounter = 0;
+                    byteindex = 0;
                     continue;
                 }
-                bytecounter++;
+                byteindex++;
             }
         }
 
         if (statemachine->state == STOP) {
             alarm(0);
             printf("Received UA frame\n");
+            free(statemachine);
             return 1;
         }
-
-        printf("Timeout, retransmitting SET frame...\n");
     }
 
     printf("Max retransmissions reached. Connection failed.\n");
+    free(statemachine);
     return -1;
 }
 
 int llopen_rx(LinkLayer connectionParameters) {
-    unsigned char buf[BUF_SIZE + 1] = {0}; // +1: Save space for the final '\0' char
-    int bytecounter = 0;
-    StateMachine* statemachine = new_statemachine(LlTx, COMMAND, SET); // SET frame comes from transmitter, so role is LlTx
+    unsigned char buf[BUF_SIZE] = {0};
+    int byteindex = 0;
+    StateMachine* statemachine = new_statemachine();
+
+    if (statemachine == NULL) {
+        printf("Error allocating state machine\n");
+        return -1;
+    }
 
     while (statemachine->state != STOP) {
-        int read_byte = readByteSerialPort(&buf[bytecounter]);
-        if (read_byte > 0) {
-            change_statemachine(statemachine, buf[bytecounter]);
+        if (readByteSerialPort(&buf[byteindex]) > 0) {
+            change_state(statemachine, buf[byteindex], A_COMTX, C_SET);
             if (statemachine->state == START) {
-                bytecounter = 0;
+                byteindex = 0;
                 continue;
             }
-            bytecounter++;
+            byteindex++;
         }
     }
 
-    if (statemachine->state == STOP) {
-        printf("Received SET frame\n");
+    printf("Received SET frame\n");
 
-        unsigned char ua[BUF_SIZE] = {0};
+    buf[0] = 0x7E;
+    buf[1] = 0x03;
+    buf[2] = 0x07;
+    buf[3] = buf[1] ^ buf[2];
+    buf[4] = 0x7E;
 
-        ua[0] = 0x7E;
-        ua[1] = 0x03;
-        ua[2] = 0x07;
-        ua[3] = ua[1] ^ ua[2];
-        ua[4] = 0x7E;
-
-        int bytes_ua = writeBytesSerialPort(ua, BUF_SIZE);
-
-        if (bytes_ua < BUF_SIZE) {
-            printf("Error while writing UA frame\n");
-            return -1;
-        }
-
-        printf("Sent UA frame\n");
-        return 1;
+    if (writeBytesSerialPort(buf, BUF_SIZE) < BUF_SIZE) {
+        printf("Error while writing UA frame\n");
+        free(statemachine);
+        return -1;
     }
 
-    return -1;
+    printf("Sent UA frame\n");
+    free(statemachine);
+    return 1;
 }
 
 int llopen(LinkLayer connectionParameters)

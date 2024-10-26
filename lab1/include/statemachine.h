@@ -3,7 +3,6 @@
 
 #include "link_layer.h"
 
-
 typedef enum
 {
     START,
@@ -14,30 +13,12 @@ typedef enum
     STOP
 } State;
 
-typedef enum
-{
-    COMMAND,
-    REPLY
-} DataType;
-
-typedef enum
-{
-    SET,
-    UA
-} Frame;
-
 typedef struct
 {
     State state;
-    LinkLayerRole role; // role of the data source (e.g. if transmitter is reading UA frame, then role is LlRx)
-    DataType datatype;
-    Frame frame;
 } StateMachine;
 
-StateMachine* new_statemachine(LinkLayerRole role, DataType datatype, Frame frame);
-void change_statemachine(StateMachine* statemachine, int byte);
-int get_a_byte(StateMachine* statemachine);
-int get_c_byte(StateMachine* statemachine);
-void delete_statemachine(StateMachine* statemachine);
+StateMachine* new_statemachine();
+void change_state(StateMachine* statemachine, int byte, unsigned char a_byte, unsigned char c_byte);
 
 #endif
