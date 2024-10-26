@@ -19,6 +19,8 @@
 #define A_REPTX 0x01 // reply sent by transmitter
 #define C_SET 0X03
 #define C_UA 0x07
+#define C_I0 0x00
+#define C_I1 0x80
 
 int alarmEnabled = FALSE;
 int alarmCount = 0;
@@ -36,7 +38,7 @@ void alarmHandler(int signal)
 // LLOPEN
 ////////////////////////////////////////////////
 
-int llopen_tx(LinkLayer connectionParameters) {
+int llopenTx(LinkLayer connectionParameters) {
     (void)signal(SIGALRM, alarmHandler);
 
     StateMachine* statemachine = new_statemachine();
@@ -88,7 +90,7 @@ int llopen_tx(LinkLayer connectionParameters) {
     return -1;
 }
 
-int llopen_rx(LinkLayer connectionParameters) {
+int llopenRx(LinkLayer connectionParameters) {
     unsigned char buf[BUF_SIZE] = {0};
     int byteindex = 0;
     StateMachine* statemachine = new_statemachine();
@@ -137,18 +139,38 @@ int llopen(LinkLayer connectionParameters)
     }
 
     if (connectionParameters.role == LlTx)
-        return llopen_tx(connectionParameters);
+        return llopenTx(connectionParameters);
     
-    return llopen_rx(connectionParameters);
+    return llopenRx(connectionParameters);
 }
 
 ////////////////////////////////////////////////
 // LLWRITE
 ////////////////////////////////////////////////
+unsigned char bcc2(const unsigned char *buf, int bufSize) {
+    unsigned char bcc2 = buf[0];
+    for (int i = 1; i < bufSize; i++) {
+        bcc2 ^= buf[i];
+    }
+    return bcc2;
+}
+
 int llwrite(const unsigned char *buf, int bufSize)
 {
-    // TODO
+    static int frameNumber = 0;
 
+    unsigned char frame[bufSize + 6]; // information frame
+    frame[0] = FLAG;
+    frame[1] = A_COMTX;
+    frame[2] = (frameNumber == 0) ? C_I0 : C_I1;
+    frame[3] = frame[1] ^ frame[2];
+    for (int i = 4; i < bufSize + 4; i++) {
+        frame[i] = buf[i - 4];
+    }
+    frame[4 + bufSize] = bcc2(buf, bufSize);
+    frame[5 + bufSize] = FLAG;
+
+    frameNumber = (frameNumber + 1) % 2;
     return 0;
 }
 
