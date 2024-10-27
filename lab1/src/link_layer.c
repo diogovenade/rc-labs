@@ -11,7 +11,6 @@
 
 // MISC
 #define _POSIX_SOURCE 1 // POSIX compliant source
-#define BUF_SIZE 5
 
 #define FLAG 0x7E
 #define ESC 0x7D
@@ -23,6 +22,13 @@
 #define C_UA 0x07
 #define C_I0 0x00
 #define C_I1 0x80
+#define C_RR0 0xAA
+#define C_RR1 0xAB
+#define C_REJ0 0x54
+#define C_REJ1 0x55
+
+int nRetransmissions;
+int timeout;
 
 int alarmEnabled = FALSE;
 int alarmCount = 0;
@@ -40,7 +46,7 @@ void alarmHandler(int signal)
 // LLOPEN
 ////////////////////////////////////////////////
 
-int llopenTx(LinkLayer connectionParameters) {
+int llopenTx() {
     (void)signal(SIGALRM, alarmHandler);
 
     StateMachine* statemachine = new_statemachine();
@@ -50,10 +56,10 @@ int llopenTx(LinkLayer connectionParameters) {
         return -1;
     }
 
-    while (alarmCount < connectionParameters.nRetransmissions) {
-        unsigned char buf[BUF_SIZE] = {FLAG, A_COMTX, C_SET, A_COMTX ^ C_SET, FLAG};
+    while (alarmCount < nRetransmissions) {
+        unsigned char buf[5] = {FLAG, A_COMTX, C_SET, A_COMTX ^ C_SET, FLAG};
 
-        if (writeBytesSerialPort(buf, BUF_SIZE) < BUF_SIZE) {
+        if (writeBytesSerialPort(buf, 5) < 5) {
             printf("Error while writing\n");
             free(statemachine);
             return -1;
@@ -62,7 +68,7 @@ int llopenTx(LinkLayer connectionParameters) {
         printf("Sent SET frame\n");
 
         if (alarmEnabled == FALSE) {
-            alarm(connectionParameters.timeout);
+            alarm(timeout);
             alarmEnabled = TRUE;
         }
 
@@ -92,8 +98,8 @@ int llopenTx(LinkLayer connectionParameters) {
     return -1;
 }
 
-int llopenRx(LinkLayer connectionParameters) {
-    unsigned char buf[BUF_SIZE] = {0};
+int llopenRx() {
+    unsigned char buf[5] = {0};
     int byteindex = 0;
     StateMachine* statemachine = new_statemachine();
 
@@ -121,7 +127,7 @@ int llopenRx(LinkLayer connectionParameters) {
     buf[3] = buf[1] ^ buf[2];
     buf[4] = 0x7E;
 
-    if (writeBytesSerialPort(buf, BUF_SIZE) < BUF_SIZE) {
+    if (writeBytesSerialPort(buf, 5) < 5) {
         printf("Error while writing UA frame\n");
         free(statemachine);
         return -1;
@@ -140,10 +146,13 @@ int llopen(LinkLayer connectionParameters)
         return -1;
     }
 
+    nRetransmissions = connectionParameters.nRetransmissions;
+    timeout = connectionParameters.timeout;
+
     if (connectionParameters.role == LlTx)
-        return llopenTx(connectionParameters);
+        return llopenTx();
     
-    return llopenRx(connectionParameters);
+    return llopenRx();
 }
 
 ////////////////////////////////////////////////
@@ -183,6 +192,8 @@ int stuffing(unsigned char *frame, int bufSize) {
 
 int llwrite(const unsigned char *buf, int bufSize)
 {
+    (void)signal(SIGALRM, alarmHandler);
+
     static int frameNumber = 0;
 
     unsigned char *frame = malloc(bufSize + 6); // information frame
@@ -210,16 +221,57 @@ int llwrite(const unsigned char *buf, int bufSize)
     }
     printf("\n");
 
-    if (writeBytesSerialPort(frame, frameSize) < frameSize) {
-        printf("Error while writing information frame\n");
+    alarmCount = 0;
+    alarmEnabled = FALSE;
+    StateMachine* statemachine = new_statemachine();
+
+    if (statemachine == NULL) {
+        printf("Error allocating state machine\n");
         return -1;
     }
 
-    printf("SUCCESS\n");
-    printf("Information frame %d\n", frameNumber);
+    while (alarmCount < nRetransmissions) {
+        unsigned char response[5] = {0};
+
+        if (writeBytesSerialPort(frame, frameSize) < frameSize) {
+            printf("Error while writing information frame\n");
+            free(frame);
+            return -1;
+        }
+        printf("Information frame %d sent\n", frameNumber);
+
+        if (!alarmEnabled) {
+            alarm(timeout);
+            alarmEnabled = TRUE;
+        }
+
+        int byteindex = 0;
+
+        while (statemachine->state != STOP && alarmEnabled) {
+            if (readByteSerialPort(&response[byteindex]) > 0) {
+                change_state(statemachine, response[byteindex], A_REPRX, (frameNumber == 0) ? C_RR1 : C_RR0);
+                if (statemachine->state == START) {
+                    byteindex = 0;
+                    continue;
+                }
+                byteindex++;
+            }
+        }
+
+        if (statemachine->state == STOP) {
+            alarm(0);
+            printf("Reception confirmed\n");
+            free(statemachine);
+            free(frame);
+            frameNumber = (frameNumber + 1) % 2;
+            return 1;
+        }
+    }
+
+    printf("Max retransmissions reached. Connection failed.\n");
+    free(statemachine);
     free(frame);
-    frameNumber = (frameNumber + 1) % 2;
-    return 1;
+    return -1;
 }
 
 ////////////////////////////////////////////////
