@@ -7,12 +7,14 @@
 #include <unistd.h>
 #include <signal.h>
 #include <stdlib.h>
+#include <string.h>
 
 // MISC
 #define _POSIX_SOURCE 1 // POSIX compliant source
 #define BUF_SIZE 5
 
 #define FLAG 0x7E
+#define ESC 0x7D
 #define A_COMTX 0X03 // command sent by transmitter
 #define A_REPRX 0x03 // reply sent by receiver
 #define A_COMRX 0x01 // command sent by receiver
@@ -51,7 +53,7 @@ int llopenTx(LinkLayer connectionParameters) {
     while (alarmCount < connectionParameters.nRetransmissions) {
         unsigned char buf[BUF_SIZE] = {FLAG, A_COMTX, C_SET, A_COMTX ^ C_SET, FLAG};
 
-        if (writeBytesSerialPort(buf, BUF_SIZE) < 5) {
+        if (writeBytesSerialPort(buf, BUF_SIZE) < BUF_SIZE) {
             printf("Error while writing\n");
             free(statemachine);
             return -1;
@@ -155,11 +157,35 @@ unsigned char bcc2(const unsigned char *buf, int bufSize) {
     return bcc2;
 }
 
+int stuffing(unsigned char *frame, int bufSize) {
+    int length = 4; // initial length, before data
+    int frameLength = bufSize + 6; // frame length before stuffing
+
+    unsigned char copyFrame[bufSize + 6];
+    memcpy(copyFrame, frame, sizeof(copyFrame));
+
+    for (int i = 4; i < frameLength; i++) {
+        if (copyFrame[i] == FLAG && i != (frameLength - 1)) {
+            frame = realloc(frame, length + 1);
+            frame[length++] = 0x7D;
+            frame[length++] = 0x5E;
+        } else if (copyFrame[i] == ESC) {
+            frame = realloc(frame, length + 1);
+            frame[length++] = 0x7D;
+            frame[length++] = 0x5D;
+        } else {
+            frame[length++] = copyFrame[i];
+        }
+    }
+
+    return length;
+}
+
 int llwrite(const unsigned char *buf, int bufSize)
 {
     static int frameNumber = 0;
 
-    unsigned char frame[bufSize + 6]; // information frame
+    unsigned char *frame = malloc(bufSize + 6); // information frame
     frame[0] = FLAG;
     frame[1] = A_COMTX;
     frame[2] = (frameNumber == 0) ? C_I0 : C_I1;
@@ -170,8 +196,30 @@ int llwrite(const unsigned char *buf, int bufSize)
     frame[4 + bufSize] = bcc2(buf, bufSize);
     frame[5 + bufSize] = FLAG;
 
+    printf("Frame before stuffing: ");
+    for (int i = 0; i < bufSize + 6; i++) {
+        printf("%02X ", frame[i]);
+    }
+    printf("\n");
+
+    int frameSize = stuffing(frame, bufSize);
+
+    printf("Frame after stuffing: ");
+    for (int i = 0; i < frameSize; i++) {
+        printf("%02X ", frame[i]);
+    }
+    printf("\n");
+
+    if (writeBytesSerialPort(frame, frameSize) < frameSize) {
+        printf("Error while writing information frame\n");
+        return -1;
+    }
+
+    printf("SUCCESS\n");
+    printf("Information frame %d\n", frameNumber);
+    free(frame);
     frameNumber = (frameNumber + 1) % 2;
-    return 0;
+    return 1;
 }
 
 ////////////////////////////////////////////////

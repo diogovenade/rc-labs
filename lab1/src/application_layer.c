@@ -32,6 +32,19 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         return;
     }
 
+    unsigned char buf[4] = {0x12, 0x7E, 0x7D, 0x11};
+
+    if (connectionParameters.role == LlTx) {
+        if (llwrite(buf, 4) != 1) {
+            printf("ERROR\n");
+            return;
+        }
+        if (llwrite(buf, 4) != 1) {
+            printf("ERROR\n");
+            return;
+        }
+    }
+
     return;
 
     // TODO
