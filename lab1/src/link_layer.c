@@ -12,20 +12,7 @@
 // MISC
 #define _POSIX_SOURCE 1 // POSIX compliant source
 
-#define FLAG 0x7E
-#define ESC 0x7D
-#define A_COMTX 0X03 // command sent by transmitter
-#define A_REPRX 0x03 // reply sent by receiver
-#define A_COMRX 0x01 // command sent by receiver
-#define A_REPTX 0x01 // reply sent by transmitter
-#define C_SET 0X03
-#define C_UA 0x07
-#define C_I0 0x00
-#define C_I1 0x80
-#define C_RR0 0xAA
-#define C_RR1 0xAB
-#define C_REJ0 0x54
-#define C_REJ1 0x55
+static int frameNumber = 0;
 
 int nRetransmissions;
 int timeout;
@@ -194,8 +181,6 @@ int llwrite(const unsigned char *buf, int bufSize)
 {
     (void)signal(SIGALRM, alarmHandler);
 
-    static int frameNumber = 0;
-
     unsigned char *frame = malloc(bufSize + 6); // information frame
     frame[0] = FLAG;
     frame[1] = A_COMTX;
@@ -236,6 +221,7 @@ int llwrite(const unsigned char *buf, int bufSize)
         if (writeBytesSerialPort(frame, frameSize) < frameSize) {
             printf("Error while writing information frame\n");
             free(frame);
+            free(statemachine);
             return -1;
         }
         printf("Information frame %d sent\n", frameNumber);
@@ -268,7 +254,7 @@ int llwrite(const unsigned char *buf, int bufSize)
                 free(statemachine);
                 free(frame);
                 frameNumber = (frameNumber + 1) % 2;
-                return 1;
+                return frameSize;
             }
         }
     }
@@ -282,11 +268,111 @@ int llwrite(const unsigned char *buf, int bufSize)
 ////////////////////////////////////////////////
 // LLREAD
 ////////////////////////////////////////////////
+int destuffing(unsigned char *packet, int length) {
+    int i = 0, j = 0;
+    while (i < length) {
+        if (packet[i] == 0x7D) {
+            i++;
+            if (i < length) {
+                if (packet[i] == 0x5E) {
+                    packet[j++] = 0x7E;
+                } else if (packet[i] == 0x5D) {
+                    packet[j++] = 0x7D;
+                }
+            }
+        } else {
+            packet[j++] = packet[i];
+        }
+        i++;
+    }
+    return j;
+}
+
 int llread(unsigned char *packet)
 {
-    // TODO
+    unsigned char byte;
+    int byteindex = 0;
+    StateMachine* statemachine = new_statemachine();
 
-    return 0;
+    if (statemachine == NULL) {
+        printf("Error allocating state machine\n");
+        return -1;
+    }
+
+    unsigned char a_byte = A_COMTX;
+    unsigned char c_byte = (frameNumber == 0) ? C_I0 : C_I1;
+
+    volatile int stop = FALSE;
+
+    while (!stop) {
+        while (statemachine->state != STOP) {
+            if (readByteSerialPort(&byte) > 0) {
+                if (statemachine->state == READ_DATA) {
+                    packet[byteindex] = byte;
+                    byteindex++;
+                }
+                change_state(statemachine, byte, a_byte, c_byte);
+            }
+        }
+
+        unsigned char reply[5] = {0};
+
+        // First byte is BCC1, last two bytes are BCC2 and FLAG
+        if (packet[0] == (a_byte ^ c_byte)) {
+            printf("BCC1 validation passed\n");
+
+            unsigned char bcc2Value = packet[byteindex - 2];
+
+            // Remove BCC1, BCC2 and FLAG from packet
+            int dataSize = byteindex - 3;
+            memmove(packet, packet + 1, dataSize);
+
+            int destuffedSize = destuffing(packet, dataSize);
+
+            if (bcc2Value == bcc2(packet, destuffedSize)) {
+                printf("BCC2 validation passed\n");
+
+                reply[0] = FLAG;
+                reply[1] = A_REPRX;
+                reply[2] = (frameNumber == 0) ? C_RR1 : C_RR0;
+                reply[3] = reply[1] ^ reply[2];
+                reply[4] = FLAG;
+
+                if (writeBytesSerialPort(reply, 5) < 5) {
+                    printf("Error while writing reply to information frame %d\n", frameNumber);
+                    free(statemachine);
+                    return -1;
+                }
+
+                printf("Replied, information frame %d accepted\n", frameNumber);
+                stop = TRUE;
+                free(statemachine);
+                return destuffedSize;
+
+            } else {
+                printf("BCC2 validation failed\n");
+            }
+        } else {
+            printf("BCC1 validation failed\n");
+        }
+
+        reply[0] = FLAG;
+        reply[1] = A_REPRX;
+        reply[2] = (frameNumber == 0) ? C_REJ0 : C_REJ1;
+        reply[3] = reply[1] ^ reply[2];
+        reply[4] = FLAG;
+
+        if (writeBytesSerialPort(reply, 5) < 5) {
+            printf("Error while writing reply to information frame %d\n", frameNumber);
+            free(statemachine);
+            return -1;
+        }
+
+        printf("Replied, information frame %d rejected\n", frameNumber);
+        statemachine->state = START;
+    }
+
+    return -1;
 }
 
 ////////////////////////////////////////////////

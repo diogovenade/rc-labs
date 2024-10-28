@@ -12,7 +12,7 @@ StateMachine* new_statemachine() {
 void change_state(StateMachine* statemachine, int byte, unsigned char a_byte, unsigned char c_byte) {
     switch (statemachine -> state) {
         case START:
-            if (byte == 0x7E) {
+            if (byte == FLAG) {
                 statemachine->state = FLAG_RCV;
             }
             break;
@@ -26,17 +26,26 @@ void change_state(StateMachine* statemachine, int byte, unsigned char a_byte, un
             break;
         
         case A_RCV:
-            if (byte == 0x7E) {
+            if (byte == FLAG) {
                 statemachine->state = FLAG_RCV;
             } else if (byte == c_byte) {
+                if (byte == C_I0 || byte == C_I1) {
+                    statemachine->state = READ_DATA;
+                }
                 statemachine->state = C_RCV;
             } else {
                 statemachine->state = START;
             }
             break;
 
+        case READ_DATA:
+            if (byte == FLAG) {
+                statemachine->state = STOP;
+            }
+            break;
+
         case C_RCV:
-            if (byte == 0x7E) {
+            if (byte == FLAG) {
                 statemachine->state = FLAG_RCV;
             } else if (byte == (a_byte ^ c_byte)) {
                 statemachine->state = BCC_OK;
@@ -46,7 +55,7 @@ void change_state(StateMachine* statemachine, int byte, unsigned char a_byte, un
             break;
         
         case BCC_OK:
-            if (byte == 0x7E) {
+            if (byte == FLAG) {
                 statemachine->state = STOP;
             } else {
                 statemachine->state = START;
