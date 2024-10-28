@@ -259,12 +259,17 @@ int llwrite(const unsigned char *buf, int bufSize)
         }
 
         if (statemachine->state == STOP) {
-            alarm(0);
-            printf("Reception confirmed\n");
-            free(statemachine);
-            free(frame);
-            frameNumber = (frameNumber + 1) % 2;
-            return 1;
+            if (response[2] == C_REJ0 || response[2] == C_REJ1) {
+                alarmEnabled = FALSE;
+                printf("Information frame %d rejected, trying again...\n", frameNumber);
+            } else {
+                alarm(0);
+                printf("Reception confirmed\n");
+                free(statemachine);
+                free(frame);
+                frameNumber = (frameNumber + 1) % 2;
+                return 1;
+            }
         }
     }
 
