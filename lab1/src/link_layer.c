@@ -316,6 +316,10 @@ int llread(unsigned char *packet)
             }
         }
 
+        if (statemachine->lostReply) {
+            frameNumber = (frameNumber + 1) % 2;
+        }
+
         unsigned char reply[5] = {0};
 
         // First byte is BCC1, last two bytes are BCC2 and FLAG
@@ -346,6 +350,11 @@ int llread(unsigned char *packet)
                 }
 
                 printf("Replied, information frame %d accepted\n", frameNumber);
+                printf("Content of the packet (after destuffing):\n");
+                for (int i = 0; i < destuffedSize; i++) {
+                    printf("%02X ", packet[i]);
+                }
+                printf("\n\n");
                 stop = TRUE;
                 free(statemachine);
                 frameNumber = (frameNumber + 1) % 2;
@@ -372,6 +381,7 @@ int llread(unsigned char *packet)
 
         printf("Replied, information frame %d rejected\n", frameNumber);
         statemachine->state = START;
+        statemachine->lostReply = FALSE;
     }
 
     return -1;
