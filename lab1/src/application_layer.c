@@ -26,6 +26,22 @@ unsigned char* newControlPacket(int controlField, long fileSize, const char *fil
     return controlPacket;
 }
 
+unsigned char* newDataPacket(int sequenceNumber, unsigned char *data, int dataSize, int *length) {
+    int l1 = dataSize & 0xFF;
+    int l2 = (dataSize >> 8) & 0xFF;
+    *length = dataSize + 4;
+
+    unsigned char* dataPacket = (unsigned char*) malloc(*length);
+    int offset = 0;
+    dataPacket[offset++] = 2;
+    dataPacket[offset++] = sequenceNumber;
+    dataPacket[offset++] = l2;
+    dataPacket[offset++] = l1;
+    memcpy(dataPacket + offset, data, dataSize);
+
+    return dataPacket;
+}
+
 int applicationLayerTx(const char *filename) {
     FILE* file = fopen(filename, "rb");
     if (file == NULL) {
@@ -45,7 +61,7 @@ int applicationLayerTx(const char *filename) {
         return -1;
     }
 
-    return -1;
+    return 1;
 
 }
 
