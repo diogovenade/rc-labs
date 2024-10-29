@@ -316,11 +316,27 @@ int llread(unsigned char *packet)
             }
         }
 
-        if (statemachine->lostReply) {
-            frameNumber = (frameNumber + 1) % 2;
-        }
-
         unsigned char reply[5] = {0};
+
+        if (statemachine->retransmission) { // if it's a retranmission (e.g. due to lost reply), we can discard duplicate packet
+            frameNumber = (frameNumber + 1) % 2;
+            reply[0] = FLAG;
+            reply[1] = A_REPRX;
+            reply[2] = (frameNumber == 0) ? C_RR1 : C_RR0;
+            reply[3] = reply[1] ^ reply[2];
+            reply[4] = FLAG;
+
+            if (writeBytesSerialPort(reply, 5) < 5) {
+                printf("Error while writing reply to information frame %d\n", frameNumber);
+                free(statemachine);
+                return -1;
+            }
+
+            printf("Retransmission of information frame %d, ignoring\n", frameNumber);
+            free(statemachine);
+            frameNumber = (frameNumber + 1) % 2;
+            return 0; // nothing was written to packet
+        }
 
         // First byte is BCC1, last two bytes are BCC2 and FLAG
         if (packet[0] == (a_byte ^ c_byte)) {
@@ -354,8 +370,7 @@ int llread(unsigned char *packet)
                 for (int i = 0; i < destuffedSize; i++) {
                     printf("%02X ", packet[i]);
                 }
-                printf("\n\n");
-                stop = TRUE;
+                printf("\n");
                 free(statemachine);
                 frameNumber = (frameNumber + 1) % 2;
                 return destuffedSize;
@@ -381,7 +396,7 @@ int llread(unsigned char *packet)
 
         printf("Replied, information frame %d rejected\n", frameNumber);
         statemachine->state = START;
-        statemachine->lostReply = FALSE;
+        statemachine->retransmission = FALSE;
     }
 
     return -1;

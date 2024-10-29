@@ -5,7 +5,7 @@
 StateMachine* new_statemachine() {
     StateMachine* statemachine = (StateMachine*) malloc(sizeof(StateMachine));
     statemachine->state = START;
-    statemachine->lostReply = FALSE;
+    statemachine->retransmission = FALSE;
     return statemachine;
 }
 
@@ -37,7 +37,7 @@ void change_state(StateMachine* statemachine, int byte, unsigned char a_byte, un
                 }
             } else if (byte == C_I0 || byte == C_I1) {
                 statemachine->state = READ_DATA;
-                statemachine->lostReply = TRUE;
+                statemachine->retransmission = TRUE;
             } else {
                 statemachine->state = START;
             }
