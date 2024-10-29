@@ -7,6 +7,7 @@
 #define A_REPRX 0x03 // reply sent by receiver
 #define A_COMRX 0x01 // command sent by receiver
 #define A_REPTX 0x01 // reply sent by transmitter
+#define C_DISC 0X0B
 #define C_SET 0X03
 #define C_UA 0x07
 #define C_I0 0x00
