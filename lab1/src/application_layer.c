@@ -27,8 +27,8 @@ unsigned char* newControlPacket(int controlField, long fileSize, const char *fil
 }
 
 unsigned char* newDataPacket(int sequenceNumber, unsigned char *data, int dataSize, int *length) {
-    int l1 = dataSize & 0xFF;
-    int l2 = (dataSize >> 8) & 0xFF;
+    int l1 = dataSize & 0xFF; // lower byte
+    int l2 = (dataSize >> 8) & 0xFF; // upper byte
     *length = dataSize + 4;
 
     unsigned char* dataPacket = (unsigned char*) malloc(*length);
@@ -55,11 +55,47 @@ int applicationLayerTx(const char *filename) {
 
     int lengthControlPacket;
     unsigned char* controlPacket = newControlPacket(1, fileSize, filename, &lengthControlPacket);
-
     if (llwrite(controlPacket, lengthControlPacket) == -1) {
         printf("Error sending start control packet\n");
         return -1;
     }
+
+    unsigned char *fileContents = (unsigned char *)malloc(fileSize);
+    fread(fileContents, 1, fileSize, file);
+
+    long bytes = fileSize;
+    int sequenceNumber = 0;
+
+    while (bytes > 0) {
+        int size;
+        if (bytes > 500)
+            size = 500;
+        else
+            size = bytes;
+        
+        unsigned char* data = (unsigned char*) malloc(size);
+        memcpy(data, fileContents, size);
+
+        int packetLength;
+        unsigned char* dataPacket = newDataPacket(sequenceNumber, data, size, &packetLength);
+
+        if (llwrite(dataPacket, packetLength) == -1) {
+            printf("Error sending data packet\n");
+            return -1;
+        }
+
+        bytes = bytes - size;
+        fileContents = fileContents + size;
+        free(data);
+    }
+
+    controlPacket = newControlPacket(3, fileSize, filename, &lengthControlPacket);
+    if (llwrite(controlPacket, lengthControlPacket) == -1) {
+        printf("Error sending end control packet\n");
+        return -1;
+    }
+
+    fclose(file);
 
     return 1;
 
