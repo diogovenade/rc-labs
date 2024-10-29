@@ -32,7 +32,9 @@ void change_state(StateMachine* statemachine, int byte, unsigned char a_byte, un
                 if (byte == C_I0 || byte == C_I1) {
                     statemachine->state = READ_DATA;
                 }
-                statemachine->state = C_RCV;
+                else {
+                    statemachine->state = C_RCV;
+                }
             } else {
                 statemachine->state = START;
             }

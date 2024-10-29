@@ -307,6 +307,7 @@ int llread(unsigned char *packet)
     while (!stop) {
         while (statemachine->state != STOP) {
             if (readByteSerialPort(&byte) > 0) {
+                printf("Read byte: %02X\n", byte);
                 if (statemachine->state == READ_DATA) {
                     packet[byteindex] = byte;
                     byteindex++;
@@ -347,6 +348,7 @@ int llread(unsigned char *packet)
                 printf("Replied, information frame %d accepted\n", frameNumber);
                 stop = TRUE;
                 free(statemachine);
+                frameNumber = (frameNumber + 1) % 2;
                 return destuffedSize;
 
             } else {
