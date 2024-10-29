@@ -68,8 +68,8 @@ int applicationLayerTx(const char *filename) {
 
     while (bytes > 0) {
         int size;
-        if (bytes > 500)
-            size = 500;
+        if (bytes > MAX_PAYLOAD_SIZE)
+            size = MAX_PAYLOAD_SIZE;
         else
             size = bytes;
         
@@ -86,6 +86,7 @@ int applicationLayerTx(const char *filename) {
 
         bytes = bytes - size;
         fileContents = fileContents + size;
+        sequenceNumber = (sequenceNumber + 1) % 100;
         free(data);
     }
 
@@ -98,7 +99,49 @@ int applicationLayerTx(const char *filename) {
     fclose(file);
 
     return 1;
+}
 
+unsigned char* readControlPacket(unsigned char* controlPacket, long* fileSize) {
+    unsigned char nBytesFileSize = controlPacket[2];
+    memcpy(fileSize, controlPacket + 3, nBytesFileSize);
+
+    unsigned char nBytesFileName = controlPacket[3 + nBytesFileSize + 1];
+    unsigned char *name = (unsigned char*)malloc(nBytesFileName);
+    memcpy(name, controlPacket + 3 + nBytesFileSize + 2, nBytesFileName);
+
+    return name;
+}
+
+int applicationLayerRx() {
+    unsigned char *packet = (unsigned char*)malloc(MAX_PAYLOAD_SIZE * 2 + 6); // worst-case scenario (if every byte is stuffed)
+    if (llread(packet) == -1) { // read start control packet
+        printf("Error while reading frame\n");
+        return -1;
+    }
+
+    long fileSize;
+    unsigned char* filename = readControlPacket(packet, &fileSize);
+
+    FILE* file = fopen((const char*) filename, "wb");
+
+    int stop = FALSE;
+
+    while (!stop) {
+        int packetSize;
+        if ((packetSize = llread(packet)) == -1) {
+            printf("Error while reading frame\n");
+            return -1;
+        }
+        if (packet[0] == 3) {
+            stop = TRUE;
+        } else {
+            int dataSize = 256 * packet[2] + packet[3];
+            fwrite(&packet[4], sizeof(unsigned char), dataSize, file);
+        }
+    }
+
+    fclose(file);
+    return 1;
 }
 
 void applicationLayer(const char *serialPort, const char *role, int baudRate,
@@ -132,41 +175,18 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             printf("ERROR\n");
             return;
         }
-    }
-
-    /*unsigned char buf1[4] = {0x12, 0x7E, 0x7D, 0x7E};
-    unsigned char buf2[4] = {0x10, 0x7E, 0x14, 0x7D};
-
-    if (connectionParameters.role == LlTx) {
-        if (llwrite(buf1, 4) == -1) {
-            printf("ERROR\n");
-            return;
-        }
-        if (llwrite(buf2, 4) == -1) {
+    } else {
+        if (applicationLayerRx() == -1) {
             printf("ERROR\n");
             return;
         }
     }
 
-    unsigned char packet[1000];
-
-    if (connectionParameters.role == LlRx) {
-        if (llread(packet) == -1) {
-            printf("ERROR\n");
-            return;
-        }
-
-        if (llread(packet) == -1) {
-            printf("ERROR\n");
-            return;
-        }
-    }
-
-    if (llclose(1) != 1) {
-        printf("ERROR while closing the connection\n");
+    if (llclose(FALSE) == -1) {
+        printf("ERROR in connection termination\n");
         return;
     }
-    
-    printf("Connection closed successfully.\n");
-    return;*/
+
+    printf("Connection terminated\n");
+    return;
 }
