@@ -16,6 +16,7 @@ static int frameNumber = 0;
 
 int nRetransmissions;
 int timeout;
+LinkLayer gConnectionParameters; // global variable for connection parameters
 
 int alarmEnabled = FALSE;
 int alarmCount = 0;
@@ -135,6 +136,7 @@ int llopen(LinkLayer connectionParameters)
 
     nRetransmissions = connectionParameters.nRetransmissions;
     timeout = connectionParameters.timeout;
+    gConnectionParameters = connectionParameters;
 
     if (connectionParameters.role == LlTx)
         return llopenTx();
@@ -407,7 +409,122 @@ int llread(unsigned char *packet)
 ////////////////////////////////////////////////
 int llclose(int showStatistics)
 {
-    // TODO
+    (void)signal(SIGALRM, alarmHandler);
+
+    if (gConnectionParameters.role == LlTx) {
+        unsigned char disc[5] = {FLAG, A_COMTX, C_DISC, A_COMTX ^ C_DISC, FLAG};
+        unsigned char ua[5] = {FLAG, A_REPTX, C_UA, A_REPTX ^ C_UA, FLAG};
+        StateMachine* statemachine = new_statemachine();
+
+        if (statemachine == NULL) {
+            printf("Error allocating state machine\n");
+            return -1;
+        }
+
+        while (alarmCount < gConnectionParameters.nRetransmissions) {
+            if (writeBytesSerialPort(disc, 5) < 5) {
+                printf("Error while writing DISC frame\n");
+                return -1;
+            }
+
+            printf("Sent DISC frame\n");
+
+            if (alarmEnabled == FALSE) {
+                alarm(timeout);
+                alarmEnabled = TRUE;
+            }
+
+            unsigned char response[5] = {0};
+            int byteindex = 0;
+
+            while (statemachine->state != STOP && alarmEnabled) {
+                if (readByteSerialPort(&response[byteindex]) > 0) {
+                    change_state(statemachine, response[byteindex], A_REPRX, C_DISC);
+                    if (statemachine->state == START) {
+                        byteindex = 0;
+                        continue;
+                    }
+                    byteindex++;
+                }
+            }
+
+            if (statemachine->state == STOP) {
+                alarm(0);
+                printf("Received DISC frame\n");
+                free(statemachine);
+                break;
+            }
+        }
+
+        if (alarmCount == gConnectionParameters.nRetransmissions) {
+            printf("Max retransmissions reached. Connection failed.\n");
+            free(statemachine);
+            return -1; 
+        }
+
+        if (writeBytesSerialPort(ua, 5) < 5) {
+            printf("Error while writing UA frame\n");
+            return -1;
+        }
+
+        printf("Sent UA frame\n");
+        return 1;
+        
+    } else {
+        unsigned char discTx[5] = {0};
+        unsigned char disc[5] = {FLAG, A_REPRX, C_DISC, A_REPRX ^ C_DISC, FLAG}; 
+        StateMachine* statemachine = new_statemachine();
+
+        if (statemachine == NULL) {
+            printf("Error allocating state machine\n");
+            return -1;
+        }
+
+        int byteindex = 0;
+
+        while (statemachine->state != STOP) {
+            if (readByteSerialPort(&discTx[byteindex]) > 0) {
+                change_state(statemachine, discTx[byteindex], A_COMTX, C_DISC);
+                if (statemachine->state == START) {
+                    byteindex = 0;
+                    continue;
+                }
+                byteindex++;
+            }
+        }
+
+        if (statemachine->state == STOP) {
+            printf("Received DISC frame\n");
+        }
+
+        if (writeBytesSerialPort(disc, 5) < 5) {
+            printf("Error while writing DISC frame\n");
+            return -1;
+        }
+
+        printf("Sent DISC frame\n");
+
+        unsigned char response[5] = {0};
+        byteindex = 0;
+        statemachine->state = START;
+
+        while (statemachine->state != STOP) {
+            if (readByteSerialPort(&response[byteindex]) > 0) {
+                change_state(statemachine, response[byteindex], A_REPTX, C_UA);
+                if (statemachine->state == START) {
+                    byteindex = 0;
+                    continue;
+                }
+                byteindex++;
+            }
+        }
+
+        if (statemachine->state == STOP) {
+            printf("Received UA frame\n");
+            free(statemachine);
+            return 1;
+        }
+    }
 
     int clstat = closeSerialPort();
     return clstat;

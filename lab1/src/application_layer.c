@@ -60,6 +60,12 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         }
     }
 
+    if (llclose(1) != 1) {
+        printf("ERROR while closing the connection\n");
+        return;
+    }
+    
+    printf("Connection closed successfully.\n");
     return;
 
     // TODO

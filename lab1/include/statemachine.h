@@ -15,6 +15,7 @@
 #define C_RR1 0xAB
 #define C_REJ0 0x54
 #define C_REJ1 0x55
+#define C_DISC 0x0B
 
 #include "link_layer.h"
 
