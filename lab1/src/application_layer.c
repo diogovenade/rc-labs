@@ -45,7 +45,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         }
     }
 
-    unsigned char packet[4];
+    unsigned char packet[1000];
 
     if (connectionParameters.role == LlRx) {
         if (llread(packet) == -1) {
