@@ -5,19 +5,22 @@
 #include <signal.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/time.h>
 #include "../include/link_layer.h"
 #include "../include/statemachine.h"
 #include "../include/serial_port.h"
 
 static int frameNumber = 0;
 
-int nRetransmissions;
 int timeout;
 LinkLayer gConnectionParameters;
 
+// statistics variables
 int numRetransmissions = 0;
 int numTimeouts = 0;
 int numFrames = 0;
+struct timeval start_time;
+struct timeval end_time;
 
 int alarmEnabled = FALSE;
 int alarmCount = 0;
@@ -31,7 +34,8 @@ void alarmHandler(int signal)
 }
 
 int sendFrameAndWaitForResponse(unsigned char *frame, int frameSize, unsigned char *expectedResponse, int expectedResponseSize, StateMachine *statemachine) {
-    while (alarmCount < nRetransmissions) {
+    while (alarmCount < gConnectionParameters.nRetransmissions) {
+        statemachine->state = START;
         if (writeBytesSerialPort(frame, frameSize) < frameSize) {
             printf("Error while writing frame\n");
             return -1;
@@ -64,8 +68,6 @@ int sendFrameAndWaitForResponse(unsigned char *frame, int frameSize, unsigned ch
             printf("Received expected response\n");
             return 1;
         }
-
-        numRetransmissions++;
     }
 
     printf("Max retransmissions reached. Connection failed.\n");
@@ -134,8 +136,9 @@ int llopen(LinkLayer connectionParameters)
     if (openSerialPort(connectionParameters.serialPort, connectionParameters.baudRate) < 0) {
         return -1;
     }
+    
+    gettimeofday(&start_time, NULL);
 
-    nRetransmissions = connectionParameters.nRetransmissions;
     timeout = connectionParameters.timeout;
     gConnectionParameters = connectionParameters;
 
@@ -275,7 +278,6 @@ int destuffing(unsigned char *packet, int length) {
 int llread(unsigned char *packet)
 {
     unsigned char byte;
-    int byteindex = 0;
     StateMachine* statemachine = new_statemachine();
 
     if (statemachine == NULL) {
@@ -289,6 +291,7 @@ int llread(unsigned char *packet)
     volatile int stop = FALSE;
 
     while (!stop) {
+        int byteindex = 0;
         while (statemachine->state != STOP) {
             if (readByteSerialPort(&byte) > 0) {
                 if (statemachine->state == READ_DATA) {
@@ -315,6 +318,7 @@ int llread(unsigned char *packet)
                 return -1;
             }
             numFrames++;
+            numRetransmissions++;
 
             printf("Retransmission of information frame %d, ignoring\n", frameNumber);
             free(statemachine);
@@ -485,11 +489,15 @@ int llclose(int showStatistics)
         if(llcloseRx() < 0) return -1;
     }
 
+    gettimeofday(&end_time, NULL);
+
     if (showStatistics) {
         printf("Communication Statistics:\n");
         printf("Number of frames: %d\n", numFrames);
         printf("Number of retransmissions: %d\n", numRetransmissions);
         printf("Number of timeouts: %d\n", numTimeouts);
+        double time_elapsed = (end_time.tv_sec - start_time.tv_sec) + (end_time.tv_usec - start_time.tv_usec) / 1000000.0;
+        printf("Time elapsed: %f seconds\n", time_elapsed);
     }
 
     return closeSerialPort();

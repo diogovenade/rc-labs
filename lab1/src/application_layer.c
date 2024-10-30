@@ -7,6 +7,8 @@
 #include <string.h>
 #include <stdlib.h>
 
+#define PAYLOAD_SIZE 25
+
 unsigned char* newControlPacket(int controlField, long fileSize, const char *filename, int *length) {
     size_t lenFileSize = sizeof(fileSize);
     size_t lenFileName = strlen(filename);
@@ -70,8 +72,8 @@ int applicationLayerTx(const char *filename) {
     // Sending data packets
     while (bytes > 0) {
         int size;
-        if (bytes > MAX_PAYLOAD_SIZE)
-            size = MAX_PAYLOAD_SIZE;
+        if (bytes > PAYLOAD_SIZE)
+            size = PAYLOAD_SIZE;
         else
             size = bytes;
         
@@ -116,7 +118,7 @@ unsigned char* readControlPacket(unsigned char* controlPacket, long* fileSize) {
 }
 
 int applicationLayerRx(const char* filename) {
-    unsigned char *packet = (unsigned char*)malloc(MAX_PAYLOAD_SIZE * 2 + 6); // worst-case scenario (if every byte is stuffed)
+    unsigned char *packet = (unsigned char*)malloc(PAYLOAD_SIZE); // worst-case scenario (if every byte is stuffed)
     if (llread(packet) == -1) { // read start control packet
         printf("Error while reading frame\n");
         return -1;
