@@ -115,18 +115,16 @@ unsigned char* readControlPacket(unsigned char* controlPacket, long* fileSize) {
     return name;
 }
 
-int applicationLayerRx() {
+int applicationLayerRx(const char* filename) {
     unsigned char *packet = (unsigned char*)malloc(MAX_PAYLOAD_SIZE * 2 + 6); // worst-case scenario (if every byte is stuffed)
     if (llread(packet) == -1) { // read start control packet
         printf("Error while reading frame\n");
         return -1;
     }
 
-    // long fileSize;
-    // unsigned char* filename = readControlPacket(packet, &fileSize);
-    // FILE* file = fopen((const char*) filename, "wb");
-
-    FILE* file = fopen((const char*) "penguin_received.gif", "wb");
+    long fileSize;
+    readControlPacket(packet, &fileSize);
+    FILE* file = fopen(filename, "wb");
 
     int stop = FALSE;
 
@@ -180,7 +178,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             return;
         }
     } else {
-        if (applicationLayerRx() == -1) {
+        if (applicationLayerRx(filename) == -1) {
             printf("ERROR\n");
             return;
         }
