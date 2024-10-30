@@ -1,7 +1,7 @@
 // Serial port interface implementation
 // DO NOT CHANGE THIS FILE
 
-#include "serial_port.h"
+#include "../include/serial_port.h"
 
 #include <fcntl.h>
 #include <stdio.h>
@@ -16,6 +16,8 @@
 
 int fd = -1;           // File descriptor for open serial port
 struct termios oldtio; // Serial port settings to restore on closing
+
+int numFrames = 0;
 
 // Open and configure the serial port.
 // Returns -1 on error.
@@ -137,5 +139,6 @@ int readByteSerialPort(unsigned char *byte)
 // Returns -1 on error, otherwise the number of bytes written.
 int writeBytesSerialPort(const unsigned char *bytes, int numBytes)
 {
+    numFrames++;
     return write(fd, bytes, numBytes);
 }

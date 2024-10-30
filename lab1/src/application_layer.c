@@ -1,7 +1,7 @@
 // Application layer protocol implementation
 
-#include "application_layer.h"
-#include "link_layer.h"
+#include "../include/application_layer.h"
+#include "../include/link_layer.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -53,6 +53,7 @@ int applicationLayerTx(const char *filename) {
     long fileSize = ftell(file);
     rewind(file); // reset pointer to beginning of file
 
+    // Sends START control packet
     int lengthControlPacket;
     unsigned char* controlPacket = newControlPacket(1, fileSize, filename, &lengthControlPacket);
     if (llwrite(controlPacket, lengthControlPacket) == -1) {
@@ -66,6 +67,7 @@ int applicationLayerTx(const char *filename) {
     long bytes = fileSize;
     int sequenceNumber = 0;
 
+    // Sending data packets
     while (bytes > 0) {
         int size;
         if (bytes > MAX_PAYLOAD_SIZE)
@@ -90,6 +92,7 @@ int applicationLayerTx(const char *filename) {
         free(data);
     }
 
+    // Sends END control packet
     controlPacket = newControlPacket(3, fileSize, filename, &lengthControlPacket);
     if (llwrite(controlPacket, lengthControlPacket) == -1) {
         printf("Error sending end control packet\n");
@@ -119,10 +122,11 @@ int applicationLayerRx() {
         return -1;
     }
 
-    long fileSize;
-    unsigned char* filename = readControlPacket(packet, &fileSize);
+    // long fileSize;
+    // unsigned char* filename = readControlPacket(packet, &fileSize);
+    // FILE* file = fopen((const char*) filename, "wb");
 
-    FILE* file = fopen((const char*) filename, "wb");
+    FILE* file = fopen((const char*) "penguin_received.gif", "wb");
 
     int stop = FALSE;
 
@@ -182,7 +186,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         }
     }
 
-    if (llclose(FALSE) == -1) {
+    if (llclose(TRUE) == -1) {
         printf("ERROR in connection termination\n");
         return;
     }

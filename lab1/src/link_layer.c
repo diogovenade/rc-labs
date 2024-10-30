@@ -17,7 +17,7 @@ LinkLayer gConnectionParameters;
 
 int numRetransmissions = 0;
 int numTimeouts = 0;
-int numFrames = 0;
+extern int numFrames;
 
 int alarmEnabled = FALSE;
 int alarmCount = 0;
@@ -26,7 +26,7 @@ void alarmHandler(int signal)
 {
     alarmEnabled = FALSE;
     alarmCount++;
-
+    numTimeouts++;
     printf("Alarm #%d\n", alarmCount);
 }
 
@@ -63,6 +63,8 @@ int sendFrameAndWaitForResponse(unsigned char *frame, int frameSize, unsigned ch
             printf("Received expected response\n");
             return 1;
         }
+
+        numRetransmissions++;
     }
 
     printf("Max retransmissions reached. Connection failed.\n");
@@ -459,7 +461,7 @@ int llclose(int showStatistics)
 
     if (showStatistics) {
         printf("Communication Statistics:\n");
-        printf("Number of frames: %d\n", numFrames);
+        printf("Number of frames sent: %d\n", numFrames);
         printf("Number of retransmissions: %d\n", numRetransmissions);
         printf("Number of timeouts: %d\n", numTimeouts);
     }
