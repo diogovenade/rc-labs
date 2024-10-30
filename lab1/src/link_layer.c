@@ -1,70 +1,55 @@
 // Link layer protocol implementation
 
-#include "link_layer.h"
-#include "serial_port.h"
-#include "statemachine.h"
 #include <stdio.h>
 #include <unistd.h>
 #include <signal.h>
 #include <stdlib.h>
 #include <string.h>
-
-// MISC
-#define _POSIX_SOURCE 1 // POSIX compliant source
+#include "../include/link_layer.h"
+#include "../include/statemachine.h"
+#include "../include/serial_port.h"
 
 static int frameNumber = 0;
 
 int nRetransmissions;
 int timeout;
-LinkLayer gConnectionParameters; // global variable for connection parameters
+LinkLayer gConnectionParameters;
+
+int numRetransmissions = 0;
+int numTimeouts = 0;
+extern int numFrames;
 
 int alarmEnabled = FALSE;
 int alarmCount = 0;
 
-// Alarm function handler
 void alarmHandler(int signal)
 {
     alarmEnabled = FALSE;
     alarmCount++;
-
+    numTimeouts++;
     printf("Alarm #%d\n", alarmCount);
 }
 
-////////////////////////////////////////////////
-// LLOPEN
-////////////////////////////////////////////////
-
-int llopenTx() {
-    (void)signal(SIGALRM, alarmHandler);
-
-    StateMachine* statemachine = new_statemachine();
-
-    if (statemachine == NULL) {
-        printf("Error allocating state machine\n");
-        return -1;
-    }
-
+int sendFrameAndWaitForResponse(unsigned char *frame, int frameSize, unsigned char *expectedResponse, int expectedResponseSize, StateMachine *statemachine) {
     while (alarmCount < nRetransmissions) {
-        unsigned char buf[5] = {FLAG, A_COMTX, C_SET, A_COMTX ^ C_SET, FLAG};
-
-        if (writeBytesSerialPort(buf, 5) < 5) {
-            printf("Error while writing\n");
-            free(statemachine);
+        if (writeBytesSerialPort(frame, frameSize) < frameSize) {
+            printf("Error while writing frame\n");
             return -1;
         }
 
-        printf("Sent SET frame\n");
+        printf("Sent frame\n");
 
-        if (alarmEnabled == FALSE) {
+        if (!alarmEnabled) {
             alarm(timeout);
             alarmEnabled = TRUE;
         }
 
+        unsigned char response[expectedResponseSize];
         int byteindex = 0;
 
         while (statemachine->state != STOP && alarmEnabled) {
-            if (readByteSerialPort(&buf[byteindex]) > 0) {
-                change_state(statemachine, buf[byteindex], A_REPRX, C_UA);
+            if (readByteSerialPort(&response[byteindex]) > 0) {
+                change_state(statemachine, response[byteindex], expectedResponse[1], expectedResponse[2]);
                 if (statemachine->state == START) {
                     byteindex = 0;
                     continue;
@@ -75,15 +60,36 @@ int llopenTx() {
 
         if (statemachine->state == STOP) {
             alarm(0);
-            printf("Received UA frame\n");
-            free(statemachine);
+            printf("Received expected response\n");
             return 1;
         }
+
+        numRetransmissions++;
     }
 
     printf("Max retransmissions reached. Connection failed.\n");
-    free(statemachine);
     return -1;
+}
+
+////////////////////////////////////////////////
+// LLOPEN
+////////////////////////////////////////////////
+
+int llopenTx() {
+    (void)signal(SIGALRM, alarmHandler);
+
+    StateMachine* statemachine = new_statemachine();
+    if (statemachine == NULL) {
+        printf("Error allocating state machine\n");
+        return -1;
+    }
+
+    unsigned char setFrame[5] = {FLAG, A_COMTX, C_SET, A_COMTX ^ C_SET, FLAG};
+    unsigned char uaFrame[5] = {FLAG, A_REPRX, C_UA, A_REPRX ^ C_UA, FLAG};
+
+    int result = sendFrameAndWaitForResponse(setFrame, 5, uaFrame, 5, statemachine);
+    free(statemachine);
+    return result;
 }
 
 int llopenRx() {
@@ -109,13 +115,8 @@ int llopenRx() {
 
     printf("Received SET frame\n");
 
-    buf[0] = 0x7E;
-    buf[1] = 0x03;
-    buf[2] = 0x07;
-    buf[3] = buf[1] ^ buf[2];
-    buf[4] = 0x7E;
-
-    if (writeBytesSerialPort(buf, 5) < 5) {
+    unsigned char uaFrame[5] = {FLAG, A_REPRX, C_UA, A_REPRX ^ C_UA, FLAG};
+    if (writeBytesSerialPort(uaFrame, 5) < 5) {
         printf("Error while writing UA frame\n");
         free(statemachine);
         return -1;
@@ -128,9 +129,7 @@ int llopenRx() {
 
 int llopen(LinkLayer connectionParameters)
 {
-    if (openSerialPort(connectionParameters.serialPort,
-                       connectionParameters.baudRate) < 0)
-    {
+    if (openSerialPort(connectionParameters.serialPort, connectionParameters.baudRate) < 0) {
         return -1;
     }
 
@@ -155,29 +154,48 @@ unsigned char bcc2(const unsigned char *buf, int bufSize) {
     return bcc2;
 }
 
-int stuffing(unsigned char *frame, int bufSize) {
+int stuffing(unsigned char **frame, int bufSize) {
     int length = 4; // initial length, before data
     int frameLength = bufSize + 6; // frame length before stuffing
+    int newSize = frameLength; // Start with original frame size
 
-    unsigned char copyFrame[bufSize + 6];
-    memcpy(copyFrame, frame, sizeof(copyFrame));
+    unsigned char *copyFrame = (unsigned char*) malloc(newSize);
+    if (copyFrame == NULL) {
+        printf("Error: Unable to allocate memory for copyFrame\n");
+        return -1;
+    }
+    memcpy(copyFrame, *frame, newSize);
 
     for (int i = 4; i < frameLength; i++) {
         if (copyFrame[i] == FLAG && i != (frameLength - 1)) {
-            frame = realloc(frame, length + 1);
-            frame[length++] = 0x7D;
-            frame[length++] = 0x5E;
+            newSize += 1;
+            *frame = realloc(*frame, newSize);
+            if (*frame == NULL) {
+                printf("Error: Unable to reallocate memory for stuffed frame\n");
+                free(copyFrame);
+                return -1;
+            }
+            (*frame)[length++] = 0x7D;
+            (*frame)[length++] = 0x5E;
         } else if (copyFrame[i] == ESC) {
-            frame = realloc(frame, length + 1);
-            frame[length++] = 0x7D;
-            frame[length++] = 0x5D;
+            newSize += 1;
+            *frame = realloc(*frame, newSize);
+            if (*frame == NULL) {
+                printf("Error: Unable to reallocate memory for stuffed frame\n");
+                free(copyFrame);
+                return -1;
+            }
+            (*frame)[length++] = 0x7D;
+            (*frame)[length++] = 0x5D;
         } else {
-            frame[length++] = copyFrame[i];
+            (*frame)[length++] = copyFrame[i];
         }
     }
 
+    free(copyFrame);
     return length;
 }
+
 
 int llwrite(const unsigned char *buf, int bufSize)
 {
@@ -200,7 +218,7 @@ int llwrite(const unsigned char *buf, int bufSize)
     }
     printf("\n");
 
-    int frameSize = stuffing(frame, bufSize);
+    int frameSize = stuffing(&frame, bufSize);
 
     printf("Frame after stuffing: ");
     for (int i = 0; i < frameSize; i++) {
@@ -217,54 +235,16 @@ int llwrite(const unsigned char *buf, int bufSize)
         return -1;
     }
 
-    while (alarmCount < nRetransmissions) {
-        unsigned char response[5] = {0};
+    unsigned char rrFrame[5] = {FLAG, A_REPRX, (frameNumber == 0) ? C_RR1 : C_RR0, A_REPRX ^ ((frameNumber == 0) ? C_RR1 : C_RR0), FLAG};
+    int result = sendFrameAndWaitForResponse(frame, frameSize, rrFrame, 5, statemachine);
 
-        if (writeBytesSerialPort(frame, frameSize) < frameSize) {
-            printf("Error while writing information frame\n");
-            free(frame);
-            free(statemachine);
-            return -1;
-        }
-        printf("Information frame %d sent\n", frameNumber);
-
-        if (!alarmEnabled) {
-            alarm(timeout);
-            alarmEnabled = TRUE;
-        }
-
-        int byteindex = 0;
-
-        while (statemachine->state != STOP && alarmEnabled) {
-            if (readByteSerialPort(&response[byteindex]) > 0) {
-                change_state(statemachine, response[byteindex], A_REPRX, (frameNumber == 0) ? C_RR1 : C_RR0);
-                if (statemachine->state == START) {
-                    byteindex = 0;
-                    continue;
-                }
-                byteindex++;
-            }
-        }
-
-        if (statemachine->state == STOP) {
-            if (response[2] == C_REJ0 || response[2] == C_REJ1) {
-                alarmEnabled = FALSE;
-                printf("Information frame %d rejected, trying again...\n", frameNumber);
-            } else {
-                alarm(0);
-                printf("Reception confirmed\n");
-                free(statemachine);
-                free(frame);
-                frameNumber = (frameNumber + 1) % 2;
-                return frameSize;
-            }
-        }
+    if (result == 1) {
+        frameNumber = (frameNumber + 1) % 2;
     }
 
-    printf("Max retransmissions reached. Connection failed.\n");
     free(statemachine);
     free(frame);
-    return -1;
+    return result;
 }
 
 ////////////////////////////////////////////////
@@ -309,7 +289,6 @@ int llread(unsigned char *packet)
     while (!stop) {
         while (statemachine->state != STOP) {
             if (readByteSerialPort(&byte) > 0) {
-                printf("Read byte: %02X\n", byte);
                 if (statemachine->state == READ_DATA) {
                     packet[byteindex] = byte;
                     byteindex++;
@@ -407,125 +386,104 @@ int llread(unsigned char *packet)
 ////////////////////////////////////////////////
 // LLCLOSE
 ////////////////////////////////////////////////
+int llcloseTx() {
+    unsigned char discFrame[5] = {FLAG, A_COMTX, C_DISC, A_COMTX ^ C_DISC, FLAG};
+        unsigned char uaFrame[5] = {FLAG, A_REPTX, C_UA, A_REPTX ^ C_UA, FLAG};
+        StateMachine* statemachine = new_statemachine();
+
+        if (statemachine == NULL) {
+            printf("Error allocating state machine\n");
+            return -1;
+        }
+
+        if (sendFrameAndWaitForResponse(discFrame, 5, discFrame, 5, statemachine) == -1) {
+            free(statemachine);
+            return -1;
+        }
+
+        if (writeBytesSerialPort(uaFrame, 5) < 5) {
+            printf("Error while writing UA frame\n");
+            free(statemachine);
+            return -1;
+        }
+
+        printf("Sent UA frame\n");
+        free(statemachine);
+
+        return 1;
+}
+
+int llcloseRx() {
+    unsigned char discFrame[5] = {FLAG, A_REPRX, C_DISC, A_REPRX ^ C_DISC, FLAG};
+    StateMachine* statemachine = new_statemachine();
+
+    if (statemachine == NULL) {
+        printf("Error allocating state machine\n");
+        return -1;
+    }
+
+    unsigned char response[5] = {0};
+    int byteindex = 0;
+
+    while (statemachine->state != STOP) {
+        if (readByteSerialPort(&response[byteindex]) > 0) {
+            change_state(statemachine, response[byteindex], A_COMTX, C_DISC);
+            if (statemachine->state == START) {
+                byteindex = 0;
+                continue;
+            }
+            byteindex++;
+        }
+    }
+
+    printf("Received DISC frame\n");
+
+    if (writeBytesSerialPort(discFrame, 5) < 5) {
+        printf("Error while writing DISC frame\n");
+        free(statemachine);
+        return -1;
+    }
+
+    printf("Sent DISC frame\n");
+
+    byteindex = 0;
+    statemachine->state = START;
+
+    while (statemachine->state != STOP) {
+        if (readByteSerialPort(&response[byteindex]) > 0) {
+            change_state(statemachine, response[byteindex], A_REPTX, C_UA);
+            if (statemachine->state == START) {
+                byteindex = 0;
+                continue;
+            }
+            byteindex++;
+        }
+    }
+
+    if (statemachine->state == STOP) {
+        printf("Received UA frame\n");
+        free(statemachine);
+    }
+
+    return 1;
+}
+
 int llclose(int showStatistics)
 {
     (void)signal(SIGALRM, alarmHandler);
 
     if (gConnectionParameters.role == LlTx) {
-        unsigned char disc[5] = {FLAG, A_COMTX, C_DISC, A_COMTX ^ C_DISC, FLAG};
-        unsigned char ua[5] = {FLAG, A_REPTX, C_UA, A_REPTX ^ C_UA, FLAG};
-        StateMachine* statemachine = new_statemachine();
-
-        if (statemachine == NULL) {
-            printf("Error allocating state machine\n");
-            return -1;
-        }
-
-        while (alarmCount < gConnectionParameters.nRetransmissions) {
-            if (writeBytesSerialPort(disc, 5) < 5) {
-                printf("Error while writing DISC frame\n");
-                return -1;
-            }
-
-            printf("Sent DISC frame\n");
-
-            if (alarmEnabled == FALSE) {
-                alarm(timeout);
-                alarmEnabled = TRUE;
-            }
-
-            unsigned char response[5] = {0};
-            int byteindex = 0;
-
-            while (statemachine->state != STOP && alarmEnabled) {
-                if (readByteSerialPort(&response[byteindex]) > 0) {
-                    change_state(statemachine, response[byteindex], A_REPRX, C_DISC);
-                    if (statemachine->state == START) {
-                        byteindex = 0;
-                        continue;
-                    }
-                    byteindex++;
-                }
-            }
-
-            if (statemachine->state == STOP) {
-                alarm(0);
-                printf("Received DISC frame\n");
-                free(statemachine);
-                break;
-            }
-        }
-
-        if (alarmCount == gConnectionParameters.nRetransmissions) {
-            printf("Max retransmissions reached. Connection failed.\n");
-            free(statemachine);
-            return -1; 
-        }
-
-        if (writeBytesSerialPort(ua, 5) < 5) {
-            printf("Error while writing UA frame\n");
-            return -1;
-        }
-
-        printf("Sent UA frame\n");
-        return 1;
-        
+        if(llcloseTx() < 0) return -1;
     } else {
-        unsigned char discTx[5] = {0};
-        unsigned char disc[5] = {FLAG, A_REPRX, C_DISC, A_REPRX ^ C_DISC, FLAG}; 
-        StateMachine* statemachine = new_statemachine();
-
-        if (statemachine == NULL) {
-            printf("Error allocating state machine\n");
-            return -1;
-        }
-
-        int byteindex = 0;
-
-        while (statemachine->state != STOP) {
-            if (readByteSerialPort(&discTx[byteindex]) > 0) {
-                change_state(statemachine, discTx[byteindex], A_COMTX, C_DISC);
-                if (statemachine->state == START) {
-                    byteindex = 0;
-                    continue;
-                }
-                byteindex++;
-            }
-        }
-
-        if (statemachine->state == STOP) {
-            printf("Received DISC frame\n");
-        }
-
-        if (writeBytesSerialPort(disc, 5) < 5) {
-            printf("Error while writing DISC frame\n");
-            return -1;
-        }
-
-        printf("Sent DISC frame\n");
-
-        unsigned char response[5] = {0};
-        byteindex = 0;
-        statemachine->state = START;
-
-        while (statemachine->state != STOP) {
-            if (readByteSerialPort(&response[byteindex]) > 0) {
-                change_state(statemachine, response[byteindex], A_REPTX, C_UA);
-                if (statemachine->state == START) {
-                    byteindex = 0;
-                    continue;
-                }
-                byteindex++;
-            }
-        }
-
-        if (statemachine->state == STOP) {
-            printf("Received UA frame\n");
-            free(statemachine);
-            return 1;
-        }
+        if(llcloseRx() < 0) return -1;
     }
 
-    int clstat = closeSerialPort();
-    return clstat;
+    if (showStatistics) {
+        printf("Communication Statistics:\n");
+        printf("Number of frames: %d\n", numFrames);
+        printf("Number of retransmissions: %d\n", numRetransmissions);
+        printf("Number of timeouts: %d\n", numTimeouts);
+    }
+
+    return closeSerialPort();
 }

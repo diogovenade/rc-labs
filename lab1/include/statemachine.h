@@ -3,6 +3,8 @@
 
 #define FLAG 0x7E
 #define ESC 0x7D
+#define ESC_FLAG 0x5E
+#define ESC_ESC 0x5D
 #define A_COMTX 0X03 // command sent by transmitter
 #define A_REPRX 0x03 // reply sent by receiver
 #define A_COMRX 0x01 // command sent by receiver

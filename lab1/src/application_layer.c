@@ -1,10 +1,152 @@
 // Application layer protocol implementation
 
-#include "application_layer.h"
-#include "link_layer.h"
+#include "../include/application_layer.h"
+#include "../include/link_layer.h"
 
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
+
+unsigned char* newControlPacket(int controlField, long fileSize, const char *filename, int *length) {
+    size_t lenFileSize = sizeof(fileSize);
+    size_t lenFileName = strlen(filename);
+    *length = lenFileSize + lenFileName + 5;
+
+    unsigned char* controlPacket = (unsigned char*) malloc(*length);
+    int offset = 0;
+    controlPacket[offset++] = controlField;
+    controlPacket[offset++] = 0; // 0 for file size
+    controlPacket[offset++] = lenFileSize;
+    memcpy(controlPacket + offset, &fileSize, lenFileSize);
+    offset += lenFileSize;
+    controlPacket[offset++] = 1;
+    controlPacket[offset++] = lenFileName;
+    memcpy(controlPacket + offset, filename, lenFileName);
+
+    return controlPacket;
+}
+
+unsigned char* newDataPacket(int sequenceNumber, unsigned char *data, int dataSize, int *length) {
+    int l1 = dataSize & 0xFF; // lower byte
+    int l2 = (dataSize >> 8) & 0xFF; // upper byte
+    *length = dataSize + 4;
+
+    unsigned char* dataPacket = (unsigned char*) malloc(*length);
+    int offset = 0;
+    dataPacket[offset++] = 2;
+    dataPacket[offset++] = sequenceNumber;
+    dataPacket[offset++] = l2;
+    dataPacket[offset++] = l1;
+    memcpy(dataPacket + offset, data, dataSize);
+
+    return dataPacket;
+}
+
+int applicationLayerTx(const char *filename) {
+    FILE* file = fopen(filename, "rb");
+    if (file == NULL) {
+        perror("Error opening file\n");
+        return -1;
+    }
+
+    fseek(file, 0, SEEK_END); // move pointer to end of file
+    long fileSize = ftell(file);
+    rewind(file); // reset pointer to beginning of file
+
+    // Sends START control packet
+    int lengthControlPacket;
+    unsigned char* controlPacket = newControlPacket(1, fileSize, filename, &lengthControlPacket);
+    if (llwrite(controlPacket, lengthControlPacket) == -1) {
+        printf("Error sending start control packet\n");
+        return -1;
+    }
+
+    unsigned char *fileContents = (unsigned char *)malloc(fileSize);
+    fread(fileContents, 1, fileSize, file);
+
+    long bytes = fileSize;
+    int sequenceNumber = 0;
+
+    // Sending data packets
+    while (bytes > 0) {
+        int size;
+        if (bytes > MAX_PAYLOAD_SIZE)
+            size = MAX_PAYLOAD_SIZE;
+        else
+            size = bytes;
+        
+        unsigned char* data = (unsigned char*) malloc(size);
+        memcpy(data, fileContents, size);
+
+        int packetLength;
+        unsigned char* dataPacket = newDataPacket(sequenceNumber, data, size, &packetLength);
+
+        if (llwrite(dataPacket, packetLength) == -1) {
+            printf("Error sending data packet\n");
+            return -1;
+        }
+
+        bytes = bytes - size;
+        fileContents = fileContents + size;
+        sequenceNumber = (sequenceNumber + 1) % 100;
+        free(data);
+    }
+
+    // Sends END control packet
+    controlPacket = newControlPacket(3, fileSize, filename, &lengthControlPacket);
+    if (llwrite(controlPacket, lengthControlPacket) == -1) {
+        printf("Error sending end control packet\n");
+        return -1;
+    }
+
+    fclose(file);
+
+    return 1;
+}
+
+unsigned char* readControlPacket(unsigned char* controlPacket, long* fileSize) {
+    unsigned char nBytesFileSize = controlPacket[2];
+    memcpy(fileSize, controlPacket + 3, nBytesFileSize);
+
+    unsigned char nBytesFileName = controlPacket[3 + nBytesFileSize + 1];
+    unsigned char *name = (unsigned char*)malloc(nBytesFileName);
+    memcpy(name, controlPacket + 3 + nBytesFileSize + 2, nBytesFileName);
+
+    return name;
+}
+
+int applicationLayerRx() {
+    unsigned char *packet = (unsigned char*)malloc(MAX_PAYLOAD_SIZE * 2 + 6); // worst-case scenario (if every byte is stuffed)
+    if (llread(packet) == -1) { // read start control packet
+        printf("Error while reading frame\n");
+        return -1;
+    }
+
+    // long fileSize;
+    // unsigned char* filename = readControlPacket(packet, &fileSize);
+    // FILE* file = fopen((const char*) filename, "wb");
+
+    FILE* file = fopen((const char*) "penguin_received.gif", "wb");
+
+    int stop = FALSE;
+
+    while (!stop) {
+        int packetSize;
+        if ((packetSize = llread(packet)) == -1) {
+            printf("Error while reading frame\n");
+            return -1;
+        }
+        if (packet[0] == 3) {
+            stop = TRUE;
+        } else {
+            int dataSize = 256 * packet[2] + packet[3];
+            fwrite(&packet[4], sizeof(unsigned char), dataSize, file);
+        }
+    }
+
+    fclose(file);
+    return 1;
+}
 
 void applicationLayer(const char *serialPort, const char *role, int baudRate,
                       int nTries, int timeout, const char *filename)
@@ -28,45 +170,27 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
     connectionParameters.timeout = timeout;
 
     if (llopen(connectionParameters) != 1) {
-        printf("ERROR\n");
+        printf("ERROR in connection establishment\n");
         return;
     }
-
-    unsigned char buf1[4] = {0x12, 0x7E, 0x7D, 0x7E};
-    unsigned char buf2[4] = {0x10, 0x7E, 0x14, 0x7D};
 
     if (connectionParameters.role == LlTx) {
-        if (llwrite(buf1, 4) == -1) {
+        if (applicationLayerTx(filename) == -1) {
             printf("ERROR\n");
             return;
         }
-        if (llwrite(buf2, 4) == -1) {
-            printf("ERROR\n");
-            return;
-        }
-    }
-
-    unsigned char packet[1000];
-
-    if (connectionParameters.role == LlRx) {
-        if (llread(packet) == -1) {
-            printf("ERROR\n");
-            return;
-        }
-
-        if (llread(packet) == -1) {
+    } else {
+        if (applicationLayerRx() == -1) {
             printf("ERROR\n");
             return;
         }
     }
 
-    if (llclose(1) != 1) {
-        printf("ERROR while closing the connection\n");
+    if (llclose(TRUE) == -1) {
+        printf("ERROR in connection termination\n");
         return;
     }
-    
-    printf("Connection closed successfully.\n");
-    return;
 
-    // TODO
+    printf("Connection terminated\n");
+    return;
 }
