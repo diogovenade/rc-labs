@@ -154,29 +154,48 @@ unsigned char bcc2(const unsigned char *buf, int bufSize) {
     return bcc2;
 }
 
-int stuffing(unsigned char *frame, int bufSize) {
+int stuffing(unsigned char **frame, int bufSize) {
     int length = 4; // initial length, before data
     int frameLength = bufSize + 6; // frame length before stuffing
+    int newSize = frameLength; // Start with original frame size
 
-    unsigned char copyFrame[bufSize + 6];
-    memcpy(copyFrame, frame, sizeof(copyFrame));
+    unsigned char *copyFrame = (unsigned char*) malloc(newSize);
+    if (copyFrame == NULL) {
+        printf("Error: Unable to allocate memory for copyFrame\n");
+        return -1;
+    }
+    memcpy(copyFrame, *frame, newSize);
 
     for (int i = 4; i < frameLength; i++) {
         if (copyFrame[i] == FLAG && i != (frameLength - 1)) {
-            frame = realloc(frame, length + 1);
-            frame[length++] = 0x7D;
-            frame[length++] = 0x5E;
+            newSize += 1;
+            *frame = realloc(*frame, newSize);
+            if (*frame == NULL) {
+                printf("Error: Unable to reallocate memory for stuffed frame\n");
+                free(copyFrame);
+                return -1;
+            }
+            (*frame)[length++] = 0x7D;
+            (*frame)[length++] = 0x5E;
         } else if (copyFrame[i] == ESC) {
-            frame = realloc(frame, length + 1);
-            frame[length++] = 0x7D;
-            frame[length++] = 0x5D;
+            newSize += 1;
+            *frame = realloc(*frame, newSize);
+            if (*frame == NULL) {
+                printf("Error: Unable to reallocate memory for stuffed frame\n");
+                free(copyFrame);
+                return -1;
+            }
+            (*frame)[length++] = 0x7D;
+            (*frame)[length++] = 0x5D;
         } else {
-            frame[length++] = copyFrame[i];
+            (*frame)[length++] = copyFrame[i];
         }
     }
 
+    free(copyFrame);
     return length;
 }
+
 
 int llwrite(const unsigned char *buf, int bufSize)
 {
@@ -199,7 +218,7 @@ int llwrite(const unsigned char *buf, int bufSize)
     }
     printf("\n");
 
-    int frameSize = stuffing(frame, bufSize);
+    int frameSize = stuffing(&frame, bufSize);
 
     printf("Frame after stuffing: ");
     for (int i = 0; i < frameSize; i++) {
@@ -461,7 +480,7 @@ int llclose(int showStatistics)
 
     if (showStatistics) {
         printf("Communication Statistics:\n");
-        printf("Number of frames sent: %d\n", numFrames);
+        printf("Number of frames: %d\n", numFrames);
         printf("Number of retransmissions: %d\n", numRetransmissions);
         printf("Number of timeouts: %d\n", numTimeouts);
     }
