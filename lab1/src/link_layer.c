@@ -17,7 +17,7 @@ LinkLayer gConnectionParameters;
 
 int numRetransmissions = 0;
 int numTimeouts = 0;
-extern int numFrames;
+int numFrames = 0;
 
 int alarmEnabled = FALSE;
 int alarmCount = 0;
@@ -36,6 +36,7 @@ int sendFrameAndWaitForResponse(unsigned char *frame, int frameSize, unsigned ch
             printf("Error while writing frame\n");
             return -1;
         }
+        numFrames++;
 
         printf("Sent frame\n");
 
@@ -121,6 +122,7 @@ int llopenRx() {
         free(statemachine);
         return -1;
     }
+    numFrames++;
 
     printf("Sent UA frame\n");
     free(statemachine);
@@ -312,6 +314,7 @@ int llread(unsigned char *packet)
                 free(statemachine);
                 return -1;
             }
+            numFrames++;
 
             printf("Retransmission of information frame %d, ignoring\n", frameNumber);
             free(statemachine);
@@ -345,6 +348,7 @@ int llread(unsigned char *packet)
                     free(statemachine);
                     return -1;
                 }
+                numFrames++;
 
                 printf("Replied, information frame %d accepted\n", frameNumber);
                 printf("Content of the packet (after destuffing):\n");
@@ -374,6 +378,7 @@ int llread(unsigned char *packet)
             free(statemachine);
             return -1;
         }
+        numFrames++;
 
         printf("Replied, information frame %d rejected\n", frameNumber);
         statemachine->state = START;
@@ -406,6 +411,7 @@ int llcloseTx() {
             free(statemachine);
             return -1;
         }
+        numFrames++;
 
         printf("Sent UA frame\n");
         free(statemachine);
@@ -443,6 +449,7 @@ int llcloseRx() {
         free(statemachine);
         return -1;
     }
+    numFrames++;
 
     printf("Sent DISC frame\n");
 

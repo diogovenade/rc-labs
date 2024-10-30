@@ -17,8 +17,6 @@
 int fd = -1;           // File descriptor for open serial port
 struct termios oldtio; // Serial port settings to restore on closing
 
-int numFrames = 0;
-
 // Open and configure the serial port.
 // Returns -1 on error.
 int openSerialPort(const char *serialPort, int baudRate)
@@ -139,6 +137,5 @@ int readByteSerialPort(unsigned char *byte)
 // Returns -1 on error, otherwise the number of bytes written.
 int writeBytesSerialPort(const unsigned char *bytes, int numBytes)
 {
-    numFrames++;
     return write(fd, bytes, numBytes);
 }
