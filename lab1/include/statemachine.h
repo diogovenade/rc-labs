@@ -28,6 +28,7 @@ typedef enum
     A_RCV,
     C_RCV,
     READ_DATA,
+    DISC_RCV,
     BCC_OK,
     STOP
 } State;
