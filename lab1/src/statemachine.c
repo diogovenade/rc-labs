@@ -44,7 +44,7 @@ void change_state(StateMachine* statemachine, int byte, unsigned char a_byte, un
                 statemachine->state = READ_DATA;
                 statemachine->retransmission = TRUE;
             } else if (byte == C_DISC) {
-                statemachine->state = C_RCV;
+                statemachine->state = DISC_RCV;
             } else {
                 statemachine->state = START;
             }
@@ -64,8 +64,6 @@ void change_state(StateMachine* statemachine, int byte, unsigned char a_byte, un
                 statemachine->state = FLAG_RCV;
             } else if (byte == (a_byte ^ c_byte)) {
                 statemachine->state = BCC_OK;
-            } else if (byte == 0x08) {
-                statemachine->state = C_DISC;
             } else {
                 printf("BCC ERROR\n");
                 statemachine->state = START;
@@ -74,8 +72,16 @@ void change_state(StateMachine* statemachine, int byte, unsigned char a_byte, un
 
         case DISC_RCV:
             printf("C_DISC\n");
+            if (byte == 0x08) {
+                statemachine->state = DISC_BCC_OK;
+            }
+            break;
+
+        case DISC_BCC_OK:
+            printf("DISC_BCC_OK\n");
             if (byte == FLAG) {
                 statemachine->state = STOP;
+                printf("STOP\n");
             }
             break;
         

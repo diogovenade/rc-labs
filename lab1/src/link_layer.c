@@ -315,7 +315,7 @@ int llread(unsigned char *packet)
                     printf("byteindex: %d\n", byteindex);
                     byteindex++;
                 }
-                if (statemachine->state == DISC_RCV) {
+                if (statemachine->state == DISC_BCC_OK) {
                     printf("was here\n");
                     return 0;
                 }
