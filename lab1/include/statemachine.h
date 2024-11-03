@@ -37,7 +37,7 @@ typedef enum
 typedef struct
 {
     State state;
-    int retransmission; // TRUE if same information frame was received, despite expecting next one
+    int repeatedFrame; // TRUE if same information frame was received, despite expecting next one
 } StateMachine;
 
 StateMachine* new_statemachine();

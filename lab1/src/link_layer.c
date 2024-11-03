@@ -311,8 +311,8 @@ int llread(unsigned char *packet)
 
     volatile int stop = FALSE;
     while (!stop) {
-        if (statemachine->retransmission) {
-            statemachine->retransmission = FALSE;
+        if (statemachine->repeatedFrame) {
+            statemachine->repeatedFrame = FALSE;
         }
         int byteindex = 0;
         while (statemachine->state != STOP) {
@@ -330,7 +330,7 @@ int llread(unsigned char *packet)
 
         unsigned char reply[5] = {0};
 
-        if (statemachine->retransmission) { // if it's a retranmission (e.g. due to lost reply), we can discard duplicate packet
+        if (statemachine->repeatedFrame) { // if it's a retranmission (e.g. due to lost reply), we can discard duplicate packet
             frameNumber = (frameNumber + 1) % 2;
             reply[0] = FLAG;
             reply[1] = A_REPRX;
@@ -417,7 +417,7 @@ int llread(unsigned char *packet)
         printf("Replied, information frame %d rejected\n", frameNumber);
         
         statemachine->state = START;
-        statemachine->retransmission = TRUE;
+        statemachine->repeatedFrame = TRUE;
         printf("-----------------------------------\n");
     }
     free(statemachine);
