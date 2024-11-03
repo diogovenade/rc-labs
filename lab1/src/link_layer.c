@@ -496,7 +496,7 @@ int llclose(int showStatistics)
     if (showStatistics && gConnectionParameters.role == LlTx) {
         printf("Communication Statistics:\n");
         printf("Number of sent frames: %d\n", numFrames);
-        printf("Number of timeouts/ retransmissions: %d\n", numTimeouts);
+        printf("Number of timeouts/retransmissions: %d\n", numTimeouts);
         double time_elapsed = (end_time.tv_sec - start_time.tv_sec) + (end_time.tv_usec - start_time.tv_usec) / 1000000.0;
         printf("Time elapsed: %f seconds\n", time_elapsed);
     } else if (showStatistics && gConnectionParameters.role == LlRx) {
