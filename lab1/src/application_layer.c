@@ -131,18 +131,14 @@ int applicationLayerRx(const char* filename) {
     int stop = FALSE;
 
     while (!stop) {
-        printf("bp2\n");
         int packetSize;
         if ((packetSize = llread(packet)) == -1) {
             printf("Error while reading frame\n");
             return -1;
         }
-        printf("bp4\n");
         if (packet[0] == 3) {
-            printf("bp1\n");
             stop = TRUE;
         } else {
-            printf("bp3\n");
             int dataSize = 256 * packet[2] + packet[3];
             fwrite(&packet[4], sizeof(unsigned char), dataSize, file);
         }

@@ -16,7 +16,7 @@ int timeout;
 LinkLayer gConnectionParameters;
 
 // statistics variables
-int numRetransmissions = 0;
+int numRejected = 0;
 int numTimeouts = 0;
 int numFrames = 0;
 struct timeval start_time;
@@ -56,24 +56,36 @@ int sendFrameAndWaitForResponse(unsigned char *frame, int frameSize, unsigned ch
 
         unsigned char response[expectedResponseSize];
         int byteindex = 0;
-        printf("Waiting for response (before while loop)\n");
+        printf("Expected response: ");
+        for (int i = 0; i < expectedResponseSize; i++) {
+            printf("%02X ", expectedResponse[i]);
+        }
+        printf("\n");
         while (statemachine->state != STOP && alarmEnabled) {
-            // printf("Waiting for response (inside while loop)\n");
             if (readByteSerialPort(&response[byteindex]) > 0) {
-                printf("Received byte: %02X\n", response[byteindex]);
                 change_state(statemachine, response[byteindex], expectedResponse[1], expectedResponse[2]);
                 if (statemachine->state == START) {
                     byteindex = 0;
-                    printf("Restarting state machine and byte index\n");
+                    continue;
+                }
+                if (statemachine->state == FLAG_RCV) {
+                    byteindex = 1;
                     continue;
                 }
                 byteindex++;
             }
         }
 
+        printf("Response content: ");
+        for (int i = 0; i < expectedResponseSize; i++) {
+            printf("%02X ", response[i]);
+        }
+        printf("\n");
+
         if (statemachine->state == STOP) {
             alarm(0);
             printf("Received expected response\n");
+            printf("-----------------------------------\n");
             return 1;
         }
     }
@@ -135,6 +147,7 @@ int llopenRx() {
     numFrames++;
 
     printf("Sent UA frame\n");
+    printf("-----------------------------------\n");
     free(statemachine);
     return 1;
 }
@@ -302,32 +315,22 @@ int llread(unsigned char *packet)
             statemachine->retransmission = FALSE;
         }
         int byteindex = 0;
-        printf("bp5\n");
-        printf("retransmission: %d\n", statemachine->retransmission);
         while (statemachine->state != STOP) {
-            // byteindex = 0;
             if (readByteSerialPort(&byte) > 0) {
-                printf("READ, ");
-                printf("byte: %02X, ", byte);
                 if (statemachine->state == READ_DATA) {
-                    printf("PACKING, ");
                     packet[byteindex] = byte;
-                    printf("byteindex: %d\n", byteindex);
                     byteindex++;
                 }
                 if (statemachine->state == DISC_BCC_OK) {
-                    printf("was here\n");
                     return 0;
                 }
-                printf("a_byte: %02X, c_byte: %02X\n", a_byte, c_byte);
                 change_state(statemachine, byte, a_byte, c_byte);
             }
         }
-        printf("bp6\n");
+
         unsigned char reply[5] = {0};
 
         if (statemachine->retransmission) { // if it's a retranmission (e.g. due to lost reply), we can discard duplicate packet
-            printf("bp7\n");
             frameNumber = (frameNumber + 1) % 2;
             reply[0] = FLAG;
             reply[1] = A_REPRX;
@@ -341,7 +344,7 @@ int llread(unsigned char *packet)
                 return -1;
             }
             numFrames++;
-            numRetransmissions++;
+            numRejected++;
 
             printf("Retransmission of information frame %d, ignoring\n", frameNumber);
             printf("state: %d\n", statemachine->state);
@@ -386,7 +389,7 @@ int llread(unsigned char *packet)
                 printf("\n");
                 free(statemachine);
                 frameNumber = (frameNumber + 1) % 2;
-                printf("destuffedSize: %d\n", destuffedSize);
+                printf("-----------------------------------\n");
                 return destuffedSize;
 
             } else {
@@ -409,6 +412,7 @@ int llread(unsigned char *packet)
         }
         printf("Sent REJ frame C_REJ%x\n", reply[2] == C_REJ0 ? 0 : 1);
         numFrames++;
+        numRejected++;
 
         printf("Replied, information frame %d rejected\n", frameNumber);
         
@@ -443,9 +447,15 @@ int llcloseTx() {
         free(statemachine);
         return -1;
     }
+    printf("UA frame: ");
+    for (int i = 0; i < 5; i++) {
+        printf("%02X ", uaFrame[i]);
+    }
+    printf("\n");
     numFrames++;
 
     printf("Sent UA frame\n");
+    printf("-----------------------------------\n");
     free(statemachine);
 
     return 1;
@@ -472,6 +482,7 @@ int llcloseRx() {
 
 int llclose(int showStatistics)
 {
+    printf("Closing connection (llclose called)\n");
     (void)signal(SIGALRM, alarmHandler);
 
     if (gConnectionParameters.role == LlTx) {
@@ -482,11 +493,16 @@ int llclose(int showStatistics)
 
     gettimeofday(&end_time, NULL);
 
-    if (showStatistics) {
+    if (showStatistics && gConnectionParameters.role == LlTx) {
         printf("Communication Statistics:\n");
-        printf("Number of frames: %d\n", numFrames);
-        printf("Number of retransmissions: %d\n", numRetransmissions);
-        printf("Number of timeouts: %d\n", numTimeouts);
+        printf("Number of sent frames: %d\n", numFrames);
+        printf("Number of timeouts/ retransmissions: %d\n", numTimeouts);
+        double time_elapsed = (end_time.tv_sec - start_time.tv_sec) + (end_time.tv_usec - start_time.tv_usec) / 1000000.0;
+        printf("Time elapsed: %f seconds\n", time_elapsed);
+    } else if (showStatistics && gConnectionParameters.role == LlRx) {
+        printf("Communication Statistics:\n");
+        printf("Number of received frames: %d\n", numFrames);
+        printf("Number of rejected information frames: %d\n", numRejected);
         double time_elapsed = (end_time.tv_sec - start_time.tv_sec) + (end_time.tv_usec - start_time.tv_usec) / 1000000.0;
         printf("Time elapsed: %f seconds\n", time_elapsed);
     }
