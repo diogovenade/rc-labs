@@ -33,6 +33,8 @@ void change_state(StateMachine* statemachine, int byte, unsigned char a_byte, un
             } else if (byte == c_byte) {
                 if (byte == C_I0 || byte == C_I1) {
                     statemachine->state = READ_DATA;
+                } else if (byte == C_DISC) {
+                    statemachine->state = DISC_RCV;
                 }
                 else {
                     statemachine->state = C_RCV;
@@ -40,8 +42,6 @@ void change_state(StateMachine* statemachine, int byte, unsigned char a_byte, un
             } else if (byte == C_I0 || byte == C_I1) {
                 statemachine->state = READ_DATA;
                 statemachine->repeatedFrame = TRUE;
-            } else if (byte == C_DISC) {
-                statemachine->state = DISC_RCV;
             } else {
                 statemachine->state = START;
             }

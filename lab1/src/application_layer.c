@@ -118,7 +118,7 @@ unsigned char* readControlPacket(unsigned char* controlPacket, long* fileSize) {
 }
 
 int applicationLayerRx(const char* filename) {
-    unsigned char *packet = (unsigned char*)malloc(PAYLOAD_SIZE); // worst-case scenario (if every byte is stuffed)
+    unsigned char *packet = (unsigned char*)malloc(PAYLOAD_SIZE);
     if (llread(packet) == -1) { // read start control packet
         printf("Error while reading frame\n");
         return -1;
@@ -136,9 +136,9 @@ int applicationLayerRx(const char* filename) {
             printf("Error while reading frame\n");
             return -1;
         }
-        if (packet[0] == 3) {
+        if (packet[0] == 3 && packetSize != 0) {
             stop = TRUE;
-        } else {
+        } else if (packetSize != 0) {
             int dataSize = 256 * packet[2] + packet[3];
             fwrite(&packet[4], sizeof(unsigned char), dataSize, file);
         }
