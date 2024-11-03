@@ -5,7 +5,7 @@
 StateMachine* new_statemachine() {
     StateMachine* statemachine = (StateMachine*) malloc(sizeof(StateMachine));
     statemachine->state = START;
-    statemachine->retransmission = FALSE;
+    statemachine->repeatedFrame = FALSE;
     return statemachine;
 }
 
@@ -39,7 +39,7 @@ void change_state(StateMachine* statemachine, int byte, unsigned char a_byte, un
                 }
             } else if (byte == C_I0 || byte == C_I1) {
                 statemachine->state = READ_DATA;
-                statemachine->retransmission = TRUE;
+                statemachine->repeatedFrame = TRUE;
             } else if (byte == C_DISC) {
                 statemachine->state = DISC_RCV;
             } else {
