@@ -22,4 +22,6 @@ struct URL {
     char ip[LENGTH];
 };
 
+int parseURL(char *inputUrl, struct URL *url);
+
 #endif

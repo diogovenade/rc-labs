@@ -262,6 +262,7 @@ int llwrite(const unsigned char *buf, int bufSize)
     }
 
     unsigned char rrFrame[5] = {FLAG, A_REPRX, (frameNumber == 0) ? C_RR1 : C_RR0, A_REPRX ^ ((frameNumber == 0) ? C_RR1 : C_RR0), FLAG};
+    printf("frameSize: %d\n", frameSize);
     int result = sendFrameAndWaitForResponse(frame, frameSize, rrFrame, 5, statemachine);
 
     if (result == 1) {
