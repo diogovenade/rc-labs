@@ -1,70 +1,40 @@
 #include "download.h"
 
+#include "download.h"
+
 int parseURL(char *inputUrl, struct URL *url) {
     regex_t regex;
-    regmatch_t matches[6];
+    int hasCredentials;
 
-    // Regular expression to parse FTP URLs
-    const char *pattern = 
-        "^ftp://([^/]+)(/.*)?$"; // Match user:pass@host/path
+    regcomp(&regex, "@", 0);
+    hasCredentials = (regexec(&regex, inputUrl, 0, NULL, 0) == 0);
 
-    if (regcomp(&regex, pattern, REG_EXTENDED) != 0) {
-        fprintf(stderr, "Error compiling regex\n");
-        return -1;
-    }
-
-    if (regexec(&regex, inputUrl, 6, matches, 0) != 0) {
-        fprintf(stderr, "Invalid URL format\n");
-        regfree(&regex);
-        return -1;
-    }
-
-    // Extract user
-    if (matches[1].rm_so != -1) {
-        size_t len = matches[1].rm_eo - matches[1].rm_so;
-        strncpy(url->user, inputUrl + matches[1].rm_so, len);
-        url->user[len] = '\0';
+    if (hasCredentials) {
+        if (sscanf(inputUrl, "%*[^/]//%[^:]:%[^@]@%[^/]/%s", 
+                   url->user, url->password, url->host, url->path) != 4) {
+            regfree(&regex);
+            return -1;
+        }
     } else {
+        if (sscanf(inputUrl, "%*[^/]//%[^/]/%s", url->host, url->path) != 2) {
+            regfree(&regex);
+            return -1;
+        }
         strcpy(url->user, "anonymous");
-    }
-
-    // Extract password
-    if (matches[2].rm_so != -1) {
-        size_t len = matches[2].rm_eo - matches[2].rm_so;
-        strncpy(url->password, inputUrl + matches[2].rm_so, len);
-        url->password[len] = '\0';
-    } else {
         strcpy(url->password, "anonymous");
     }
 
-    // Extract host
-    if (matches[3].rm_so != -1) {
-        size_t len = matches[3].rm_eo - matches[3].rm_so;
-        strncpy(url->host, inputUrl + matches[3].rm_so, len);
-        url->host[len] = '\0';
-    }
-
-    // Extract path
-    if (matches[4].rm_so != -1) {
-        size_t len = matches[4].rm_eo - matches[4].rm_so;
-        strncpy(url->path, inputUrl + matches[4].rm_so, len);
-        url->path[len] = '\0';
-    } else {
-        strcpy(url->path, "/");
-    }
-
-    // Resolve IP address
-    struct hostent *host_entry;
-    if ((host_entry = gethostbyname(url->host)) == NULL) {
-        herror("gethostbyname");
-        strcpy(url->ip, "Unknown");
-    } else {
-        strcpy(url->ip, inet_ntoa(*((struct in_addr*) host_entry->h_addr_list[0])));
-    }
-
     regfree(&regex);
+
+    struct hostent *h;
+    memset(url->ip, 0, LENGTH);
+    if ((h = gethostbyname(url->host)) == NULL) {
+        herror("gethostbyname");
+        return -1;
+    }
+
+    strncpy(url->ip, inet_ntoa(*((struct in_addr *)h->h_addr_list[0])), LENGTH - 1);
     return 0;
-    
 }
 
 int main(int argc, char **argv) {
@@ -79,18 +49,17 @@ int main(int argc, char **argv) {
 
     char *inputUrl = argv[1];
 
-    printf("%s\n", inputUrl);
-
     struct URL url;
     if (parseURL(inputUrl, &url) == 0) {
         printf("Parsed URL:\n");
-        printf("  User: %s\n", url.user);
-        printf("  Password: %s\n", url.password);
-        printf("  Host: %s\n", url.host);
-        printf("  Path: %s\n", url.path);
-        printf("  IP: %s\n", url.ip);
+        printf("User: %s\n", url.user);
+        printf("Password: %s\n", url.password);
+        printf("Host: %s\n", url.host);
+        printf("Path: %s\n", url.path);
+        printf("IP: %s\n", url.ip);
     } else {
-        fprintf(stderr, "Failed to parse URL\n");
+        printf("Failed to parse URL\n");
+        return -1;
     }
 
     return 0;
