@@ -23,5 +23,6 @@ struct URL {
 };
 
 int parseURL(char *inputUrl, struct URL *url);
+int connectToServer(int port, char *ip);
 
 #endif
