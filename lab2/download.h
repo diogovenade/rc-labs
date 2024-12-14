@@ -31,5 +31,6 @@ typedef enum {
 
 int parseURL(char *inputUrl, struct URL *url);
 int newSocket(int port, char *ip);
+int getReply(const int socket, char *buffer);
 
 #endif

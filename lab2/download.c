@@ -68,12 +68,13 @@ int getReply(const int socket, char *buffer) {
     char byte;
     int index = 0;
     int code = 0;
+    State state = START;
+    char temp[4] = {0};
 
     memset(buffer, 0, LENGTH);
 
     while (read(socket, &byte, 1) > 0) {
         if (index >= LENGTH - 1) {
-            fprintf(stderr, "Response too long.\n");
             return -1;
         }
 
@@ -83,12 +84,39 @@ int getReply(const int socket, char *buffer) {
             buffer[index] = '\0';
             printf("Response line: %s", buffer);
 
-            // Extract the response code
-            if (sscanf(buffer, "%d", &code) == 1) {
+            switch (state) {
+                case START:
+                    if (sscanf(buffer, "%3d", &code) != 1) {
+                        fprintf(stderr, "Failed to parse response code.\n");
+                        return -1;
+                    }
+
+                    if (buffer[3] == '-') {
+                        state = MULTIPLE;
+                        strncpy(temp, buffer, 3);
+                    } else {
+                        state = END;
+                    }
+                    break;
+
+                case MULTIPLE:
+                    if (strncmp(buffer, temp, 3) == 0 && buffer[3] == ' ') {
+                        state = END;
+                    }
+                    break;
+
+                case END:
+                    break;
+
+                default:
+                    fprintf(stderr, "Unexpected state.\n");
+                    return -1;
+            }
+
+            index = 0;
+
+            if (state == END) {
                 return code;
-            } else {
-                fprintf(stderr, "Failed to parse response code.\n");
-                return -1;
             }
         }
     }
@@ -96,6 +124,33 @@ int getReply(const int socket, char *buffer) {
     fprintf(stderr, "Failed to read a complete response.\n");
     return -1;
 }
+
+int authenticate(const int socket, const char *user, const char *pass) {
+    char userCommand[5 + strlen(user) + 3];
+    char passCommand[5 + strlen(pass) + 3];
+    char answer[LENGTH];
+
+    sprintf(userCommand, "USER %s\r\n", user);
+    sprintf(passCommand, "PASS %s\r\n", pass);
+
+    if (write(socket, userCommand, strlen(userCommand)) < 0) {
+        perror("write USER command failed");
+        return -1;
+    }
+
+    if (getReply(socket, answer) != 331) {
+        printf("Unknown user '%s'. Abort.\n", user);
+        return -1;
+    }
+
+    if (write(socket, passCommand, strlen(passCommand)) < 0) {
+        perror("write PASS command failed");
+        return -1;
+    }
+
+    return getReply(socket, answer);
+}
+
 
 
 int main(int argc, char **argv) {
@@ -127,9 +182,13 @@ int main(int argc, char **argv) {
     char *reply = malloc(100);
     
     if (socket1 < 0 || getReply(socket1, reply) != 220) {
-        printf("ERROR\n");
+        printf("ERROR!\n");
         return -1;
     }
+
+    printf("CONNECTION\n");
+
+    authenticate(socket1, url.user, url.password);
 
     printf("SUCCESS!\n");
     return 0;
