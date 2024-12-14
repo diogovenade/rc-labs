@@ -37,7 +37,7 @@ int parseURL(char *inputUrl, struct URL *url) {
     return 0;
 }
 
-int connectToServer(int port, char *ip) {
+int newSocket(int port, char *ip) {
     int sockfd;
     struct sockaddr_in server_addr;
 
@@ -64,6 +64,40 @@ int connectToServer(int port, char *ip) {
     return sockfd;
 }
 
+int getReply(const int socket, char *buffer) {
+    char byte;
+    int index = 0;
+    int code = 0;
+
+    memset(buffer, 0, LENGTH);
+
+    while (read(socket, &byte, 1) > 0) {
+        if (index >= LENGTH - 1) {
+            fprintf(stderr, "Response too long.\n");
+            return -1;
+        }
+
+        buffer[index++] = byte;
+
+        if (byte == '\n') {
+            buffer[index] = '\0';
+            printf("Response line: %s", buffer);
+
+            // Extract the response code
+            if (sscanf(buffer, "%d", &code) == 1) {
+                return code;
+            } else {
+                fprintf(stderr, "Failed to parse response code.\n");
+                return -1;
+            }
+        }
+    }
+
+    fprintf(stderr, "Failed to read a complete response.\n");
+    return -1;
+}
+
+
 int main(int argc, char **argv) {
     if (argc <= 1) {
         fprintf(stderr, "Usage: %s <URL>\n", argv[0]);
@@ -89,5 +123,14 @@ int main(int argc, char **argv) {
         return -1;
     }
 
+    int socket1 = newSocket(21, url.ip);
+    char *reply = malloc(100);
+    
+    if (socket1 < 0 || getReply(socket1, reply) != 220) {
+        printf("ERROR\n");
+        return -1;
+    }
+
+    printf("SUCCESS!\n");
     return 0;
 }

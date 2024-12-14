@@ -22,7 +22,14 @@ struct URL {
     char ip[LENGTH];
 };
 
+typedef enum {
+    START,
+    SINGLE,
+    MULTIPLE,
+    END
+} State;
+
 int parseURL(char *inputUrl, struct URL *url);
-int connectToServer(int port, char *ip);
+int newSocket(int port, char *ip);
 
 #endif
