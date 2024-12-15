@@ -181,7 +181,7 @@ int passive(const int socket, char *ip, int *port) {
 
 int requestFileTransfer(int socket, const char *path) {
     char answer[LENGTH];
-    char command[strlen(path) + 5 + 2];
+    char command[strlen(path) + 5 + 3];
 
     snprintf(command, sizeof(command), "RETR %s\r\n", path);
     printf("Requesting file transfer: %s\n", command);
@@ -299,6 +299,11 @@ int main(int argc, char **argv) {
     }
 
     int socket2 = newSocket(port, ip);
+
+    if (socket2 < 0) {
+        fprintf(stderr, "Failed to open data socket.\n");
+        return -1;
+    }
 
     if (requestFileTransfer(socket1, url.path) == -1) {
         printf("REQUEST FILE FAIL!\n");
