@@ -179,6 +179,76 @@ int passive(const int socket, char *ip, int *port) {
     return code;
 }
 
+int requestFileTransfer(int socket, const char *path) {
+    char answer[LENGTH];
+    char command[strlen(path) + 5 + 2];
+
+    snprintf(command, sizeof(command), "RETR %s\r\n", path);
+    printf("Requesting file transfer: %s\n", command);
+
+    if (write(socket, command, strlen(command)) < 0) {
+        perror("Failed to send RETR command");
+        return -1;
+    }
+
+    int code = getReply(socket, answer);
+    printf("Server response to RETR: %d\n", code);
+
+    if (code != 150 && code != 125) {
+        fprintf(stderr, "Failed to initiate file transfer. Server response: %s\n", answer);
+        return -1;
+    }
+
+    return 0;
+}
+
+
+char *getFilename(const char *path) {
+    const char *lastSlash = strrchr(path, '/');
+    if (lastSlash == NULL) {
+        return strdup(path);
+    }
+
+    return strdup(lastSlash + 1);
+}
+
+int getFile(int socket1, int socket2, char *filename) {
+    FILE *fd = fopen(filename, "wb");
+    if (fd == NULL) {
+        perror("ERROR OPENING FILE");
+        return -1;
+    }
+
+    char buffer[LENGTH];
+    int bytes;
+    while ((bytes = read(socket2, buffer, LENGTH)) > 0) {
+        printf("Read %d bytes from data socket\n", bytes);
+        if (fwrite(buffer, 1, bytes, fd) != bytes) {
+            perror("File write error");
+            fclose(fd);
+            return -1;
+        }
+    }
+
+    if (bytes < 0) {
+        perror("Error reading from data socket");
+    }
+
+
+    fclose(fd);
+    return getReply(socket1, buffer);
+}
+
+int endConnection(const int socket1, const int socket2) {
+    char answer[LENGTH];
+    write(socket1, "quit\n", 5);
+    if (getReply(socket1, answer) != 221) {
+        printf("ERROR ENDING CONNECTION\n");
+        return -1;
+    }
+    return (close(socket1) || close(socket2));
+}
+
 
 
 
@@ -225,6 +295,25 @@ int main(int argc, char **argv) {
 
     if (passive(socket1, ip, &port) == -1)  {
         printf("PASSIVE FAIL!\n");
+        return -1;
+    }
+
+    int socket2 = newSocket(port, ip);
+
+    if (requestFileTransfer(socket1, url.path) == -1) {
+        printf("REQUEST FILE FAIL!\n");
+        return -1;
+    }
+
+    char *file = getFilename(url.path);
+
+    if (getFile(socket1, socket2, file) == -1) {
+        printf("GET FILE FAIL!\n");
+        return -1;
+    }
+
+    if (endConnection(socket1, socket2) == -1) {
+        printf("END CONNECTION FAIL!\n");
         return -1;
     }
 
