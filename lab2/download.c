@@ -278,7 +278,7 @@ int main(int argc, char **argv) {
     }
 
     int socket1 = newSocket(21, url.ip);
-    char *reply = malloc(100);
+    char reply[LENGTH];
     
     if (socket1 < 0 || getReply(socket1, reply) != 220) {
         printf("ERROR!\n");
