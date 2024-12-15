@@ -185,7 +185,7 @@ int requestFileTransfer(int socket, const char *path) {
     printf("Requesting file transfer: %s", command);
 
     if (write(socket, command, strlen(command)) < 0) {
-        perror("Failed to send RETR command");
+        printf("Failed to send RETR command\n");
         return -1;
     }
 
@@ -248,7 +248,7 @@ int closeConnection(const int socket) {
 
     printf("Sending QUIT command...\n");
     if (write(socket, "QUIT\r\n", 6) < 0) {
-        perror("Failed to send QUIT command");
+        printf("Failed to send QUIT command\n");
         return -1;
     }
 
@@ -259,7 +259,7 @@ int closeConnection(const int socket) {
 
     printf("Closing connection...\n");
     if (close(socket) < 0) {
-        perror("Failed to close control socket");
+        printf("Failed to close control socket\n");
         return -1;
     }
 
