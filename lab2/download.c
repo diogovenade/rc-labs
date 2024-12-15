@@ -236,18 +236,33 @@ int getFile(int socket1, int socket2, char *filename) {
 
 
     fclose(fd);
+    close(socket2);
     return getReply(socket1, buffer);
 }
 
 int endConnection(const int socket1, const int socket2) {
     char answer[LENGTH];
-    write(socket1, "quit\n", 5);
-    if (getReply(socket1, answer) != 221) {
-        printf("ERROR ENDING CONNECTION\n");
+
+    printf("Sending QUIT command...\n");
+    if (write(socket1, "QUIT\r\n", 6) < 0) {
+        perror("Failed to send QUIT command");
         return -1;
     }
-    return (close(socket1) || close(socket2));
+
+    if (getReply(socket1, answer) != 221) {
+        printf("ERROR ENDING CONNECTION: %s\n", answer);
+        return -1;
+    }
+
+    printf("Closing connections...\n");
+    if (close(socket1) < 0) {
+        perror("Failed to close control socket");
+        return -1;
+    }
+
+    return 0;
 }
+
 
 
 
