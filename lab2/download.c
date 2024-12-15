@@ -1,7 +1,5 @@
 #include "download.h"
 
-#include "download.h"
-
 int parseURL(char *inputUrl, struct URL *url) {
     regex_t regex;
     int hasCredentials;
@@ -151,6 +149,37 @@ int authenticate(const int socket, const char *user, const char *pass) {
     return getReply(socket, answer);
 }
 
+int passive(const int socket, char *ip, int *port) {
+    char answer[LENGTH];
+    int ip1, ip2, ip3, ip4, port1, port2;
+
+    printf("Sending PASV command...\n");
+    if (write(socket, "PASV\r\n", 6) < 0) {
+        perror("Failed to send PASV command");
+        return -1;
+    }
+
+    int code = getReply(socket, answer);
+    if (code != 227) {
+        fprintf(stderr, "Unexpected PASV reply code: %d\n", code);
+        return -1;
+    }
+
+    printf("PASV response: %s\n", answer);
+
+    if (sscanf(answer, "%*[^(](%d,%d,%d,%d,%d,%d)", &ip1, &ip2, &ip3, &ip4, &port1, &port2) != 6) {
+        fprintf(stderr, "Failed to parse PASV response: %s\n", answer);
+        return -1;
+    }
+
+    *port = port1 * 256 + port2;
+    sprintf(ip, "%d.%d.%d.%d", ip1, ip2, ip3, ip4);
+    printf("Passive mode: IP = %s, Port = %d\n", ip, *port);
+
+    return code;
+}
+
+
 
 
 int main(int argc, char **argv) {
@@ -189,6 +218,15 @@ int main(int argc, char **argv) {
     printf("CONNECTION\n");
 
     authenticate(socket1, url.user, url.password);
+    printf("AUTHENTICATION\n");
+
+    char ip[LENGTH];
+    int port;
+
+    if (passive(socket1, ip, &port) == -1)  {
+        printf("PASSIVE FAIL!\n");
+        return -1;
+    }
 
     printf("SUCCESS!\n");
     return 0;
