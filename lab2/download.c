@@ -85,19 +85,19 @@ int getReply(const int socket, char *buffer) {
             switch (state) {
                 case START:
                     if (sscanf(buffer, "%3d", &code) != 1) {
-                        fprintf(stderr, "Failed to parse response code.\n");
+                        printf("Failed to parse response code\n");
                         return -1;
                     }
 
                     if (buffer[3] == '-') {
-                        state = MULTIPLE;
+                        state = MULTIPLE_LINES;
                         strncpy(temp, buffer, 3);
                     } else {
                         state = END;
                     }
                     break;
 
-                case MULTIPLE:
+                case MULTIPLE_LINES:
                     if (strncmp(buffer, temp, 3) == 0 && buffer[3] == ' ') {
                         state = END;
                     }
@@ -107,7 +107,7 @@ int getReply(const int socket, char *buffer) {
                     break;
 
                 default:
-                    fprintf(stderr, "Unexpected state.\n");
+                    printf("Unexpected state\n");
                     return -1;
             }
 
@@ -119,30 +119,30 @@ int getReply(const int socket, char *buffer) {
         }
     }
 
-    fprintf(stderr, "Failed to read a complete response.\n");
+    printf("Failed to read a complete response\n");
     return -1;
 }
 
 int authenticate(const int socket, const char *user, const char *pass) {
-    char userCommand[5 + strlen(user) + 3];
-    char passCommand[5 + strlen(pass) + 3];
+    char commandUser[5 + strlen(user) + 3];
+    char commandPass[5 + strlen(pass) + 3];
     char answer[LENGTH];
 
-    sprintf(userCommand, "USER %s\r\n", user);
-    sprintf(passCommand, "PASS %s\r\n", pass);
+    sprintf(commandUser, "USER %s\r\n", user);
+    sprintf(commandPass, "PASS %s\r\n", pass);
 
-    if (write(socket, userCommand, strlen(userCommand)) < 0) {
-        perror("write USER command failed");
+    if (write(socket, commandUser, strlen(commandUser)) < 0) {
+        printf("write USER command failed\n");
         return -1;
     }
 
     if (getReply(socket, answer) != 331) {
-        printf("Unknown user '%s'. Abort.\n", user);
+        printf("Failed to authenticate\n");
         return -1;
     }
 
-    if (write(socket, passCommand, strlen(passCommand)) < 0) {
-        perror("write PASS command failed");
+    if (write(socket, commandPass, strlen(commandPass)) < 0) {
+        printf("write PASS command failed\n");
         return -1;
     }
 
@@ -151,24 +151,22 @@ int authenticate(const int socket, const char *user, const char *pass) {
 
 int passive(const int socket, char *ip, int *port) {
     char answer[LENGTH];
-    int ip1, ip2, ip3, ip4, port1, port2;
+    int port1, port2, ip1, ip2, ip3, ip4;
 
     printf("Sending PASV command...\n");
     if (write(socket, "PASV\r\n", 6) < 0) {
-        perror("Failed to send PASV command");
+        printf("Failed to send PASV command\n");
         return -1;
     }
 
     int code = getReply(socket, answer);
     if (code != 227) {
-        fprintf(stderr, "Unexpected PASV reply code: %d\n", code);
+        printf("Unexpected PASV reply code: %d\n", code);
         return -1;
     }
 
-    printf("PASV response: %s\n", answer);
-
     if (sscanf(answer, "%*[^(](%d,%d,%d,%d,%d,%d)", &ip1, &ip2, &ip3, &ip4, &port1, &port2) != 6) {
-        fprintf(stderr, "Failed to parse PASV response: %s\n", answer);
+        printf("Failed to parse PASV response: %s\n", answer);
         return -1;
     }
 
@@ -184,7 +182,7 @@ int requestFileTransfer(int socket, const char *path) {
     char command[strlen(path) + 5 + 3];
 
     snprintf(command, sizeof(command), "RETR %s\r\n", path);
-    printf("Requesting file transfer: %s\n", command);
+    printf("Requesting file transfer: %s", command);
 
     if (write(socket, command, strlen(command)) < 0) {
         perror("Failed to send RETR command");
@@ -195,7 +193,7 @@ int requestFileTransfer(int socket, const char *path) {
     printf("Server response to RETR: %d\n", code);
 
     if (code != 150 && code != 125) {
-        fprintf(stderr, "Failed to initiate file transfer. Server response: %s\n", answer);
+        printf("Failed to initiate file transfer. Server response: %s\n", answer);
         return -1;
     }
 
@@ -215,7 +213,7 @@ char *getFilename(const char *path) {
 int getFile(int socket1, int socket2, char *filename) {
     FILE *fd = fopen(filename, "wb");
     if (fd == NULL) {
-        perror("ERROR OPENING FILE");
+        printf("ERROR OPENING FILE\n");
         return -1;
     }
 
@@ -224,48 +222,49 @@ int getFile(int socket1, int socket2, char *filename) {
     while ((bytes = read(socket2, buffer, LENGTH)) > 0) {
         printf("Read %d bytes from data socket\n", bytes);
         if (fwrite(buffer, 1, bytes, fd) != bytes) {
-            perror("File write error");
+            printf("File write error\n");
             fclose(fd);
             return -1;
         }
     }
 
     if (bytes < 0) {
-        perror("Error reading from data socket");
+        printf("Error reading from data socket\n");
+        return -1;
     }
 
 
     fclose(fd);
-    close(socket2);
+
+    if (close(socket2) < 0) {
+        printf("Failed to close data socket\n");
+        return -1;
+    }
     return getReply(socket1, buffer);
 }
 
-int endConnection(const int socket1, const int socket2) {
+int closeConnection(const int socket) {
     char answer[LENGTH];
 
     printf("Sending QUIT command...\n");
-    if (write(socket1, "QUIT\r\n", 6) < 0) {
+    if (write(socket, "QUIT\r\n", 6) < 0) {
         perror("Failed to send QUIT command");
         return -1;
     }
 
-    if (getReply(socket1, answer) != 221) {
+    if (getReply(socket, answer) != 221) {
         printf("ERROR ENDING CONNECTION: %s\n", answer);
         return -1;
     }
 
-    printf("Closing connections...\n");
-    if (close(socket1) < 0) {
+    printf("Closing connection...\n");
+    if (close(socket) < 0) {
         perror("Failed to close control socket");
         return -1;
     }
 
     return 0;
 }
-
-
-
-
 
 int main(int argc, char **argv) {
     if (argc <= 1) {
@@ -281,7 +280,6 @@ int main(int argc, char **argv) {
 
     struct URL url;
     if (parseURL(inputUrl, &url) == 0) {
-        printf("Parsed URL:\n");
         printf("User: %s\n", url.user);
         printf("Password: %s\n", url.password);
         printf("Host: %s\n", url.host);
@@ -292,18 +290,24 @@ int main(int argc, char **argv) {
         return -1;
     }
 
+    printf("----------------------\nPARSED URL\n----------------------\n");
+
     int socket1 = newSocket(21, url.ip);
     char reply[LENGTH];
     
     if (socket1 < 0 || getReply(socket1, reply) != 220) {
-        printf("ERROR!\n");
+        printf("CONNECTION FAIL!\n");
         return -1;
     }
 
-    printf("CONNECTION\n");
+    printf("----------------------\nCONNECTED TO SERVER\n----------------------\n");
 
-    authenticate(socket1, url.user, url.password);
-    printf("AUTHENTICATION\n");
+    if (authenticate(socket1, url.user, url.password) == -1) {
+        printf("AUTHENTICATION FAIL!\n");
+        return -1;
+    }
+
+    printf("----------------------\nAUTHENTICATED\n----------------------\n");
 
     char ip[LENGTH];
     int port;
@@ -313,10 +317,12 @@ int main(int argc, char **argv) {
         return -1;
     }
 
+    printf("----------------------\nENABLED PASSIVE MODE\n----------------------\n");
+
     int socket2 = newSocket(port, ip);
 
     if (socket2 < 0) {
-        fprintf(stderr, "Failed to open data socket.\n");
+        printf("SOCKET 2 FAIL!");
         return -1;
     }
 
@@ -332,11 +338,11 @@ int main(int argc, char **argv) {
         return -1;
     }
 
-    if (endConnection(socket1, socket2) == -1) {
-        printf("END CONNECTION FAIL!\n");
+    if (closeConnection(socket1) == -1) {
+        printf("CLOSE CONNECTION FAIL!\n");
         return -1;
     }
 
-    printf("SUCCESS!\n");
+    printf("----------------------\nSUCCESS!\n----------------------\n");
     return 0;
 }
